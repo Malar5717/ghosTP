@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { OAuth2Client } from "google-auth-library";
+import { google } from "googleapis";
 import { eq } from "drizzle-orm";
 import {
   generateCodeVerifier,
@@ -18,11 +18,15 @@ const SCOPES = [
   "https://www.googleapis.com/auth/gmail.modify",
 ];
 
-const oAuth2Client = new OAuth2Client(
-  process.env.GOOGLE_CLIENT_ID,
-  process.env.GOOGLE_CLIENT_SECRET,
-  process.env.GOOGLE_REDIRECT_URI
-);
+// Fresh client per request: a module-level singleton would leak one user's
+// credentials into another user's request via setCredentials().
+function createOAuthClient() {
+  return new google.auth.OAuth2(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    process.env.GOOGLE_REDIRECT_URI
+  );
+}
 
 router.get("/google", (req, res) => {
   const state = generateState();
@@ -66,6 +70,8 @@ router.get("/google/callback", async (req, res) => {
 
     const { codeVerifier } = req.session.oauth;
     delete req.session.oauth;
+
+    const oAuth2Client = createOAuthClient();
 
     // Exchange code for tokens
     const { tokens: googleTokens } = await oAuth2Client.getToken({

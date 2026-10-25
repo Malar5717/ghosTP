@@ -3,6 +3,8 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import session from 'express-session'
 import authRouter from "./routes/auth.js"
+import scanRouter from "./routes/scan.js"
+import trashRouter from "./routes/trash.js"
 import { pool } from './db/index.js'
 import connectPgSimple from 'connect-pg-simple'
 
@@ -40,6 +42,8 @@ app.get('/health', (req, res) => {
 })
 
 app.use("/auth", authRouter)
+app.use("/scan", scanRouter)
+app.use("/trash", trashRouter)
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`)

@@ -6,7 +6,6 @@
   "scripts": {
     "dev": "nodemon index.js",
     "start": "node index.js",
-    
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -20,7 +19,7 @@
     "drizzle-orm": "^0.45.4",
     "express": "^4.19.2",
     "express-session": "^1.18.0",
-    "google-auth-library": "^9.14.1",
+    "googleapis": "^188.0.0",
     "pg": "^8.23.1"
   },
   "devDependencies": {
