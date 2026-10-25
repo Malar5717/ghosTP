@@ -1,0 +1,24 @@
+# env
+.env
+server/.env
+client/.env
+
+# prd
+PRD_ghosTP.md
+
+# dependencies
+node_modules
+client/node_modules
+server/node_modules
+
+# build
+dist
+client/dist
+server/dist
+
+# logs
+*.log
+
+# os
+.DS_Store
+Thumbs.db
