@@ -1,11 +1,13 @@
 // Server-side in-memory store for scan results.
 // We deliberately keep email metadata out of req.session, because
 // connect-pg-simple persists sessions to Postgres.
+//
+// Trash/activity history is NOT stored here anymore: it lives in the
+// Postgres `activity` table so it survives restarts.
 
 const STORE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
 const scans = new Map(); // sessionId -> { results, age, createdAt }
-const trashHistory = new Map(); // sessionId -> { items: [{ id, movedAt }], createdAt }
 
 function isExpired(entry) {
   return !entry || Date.now() - entry.createdAt > STORE_TTL_MS;
@@ -38,37 +40,9 @@ export function clearScan(sessionId) {
   scans.delete(sessionId);
 }
 
-export function addTrashed(sessionId, items) {
-  let entry = getEntry(trashHistory, sessionId);
-  if (!entry) {
-    entry = { items: [], createdAt: Date.now() };
-    trashHistory.set(sessionId, entry);
-  }
-  entry.items.unshift(...items);
-  entry.items = entry.items.slice(0, 100); // keep it bounded
-}
-
-export function getTrashed(sessionId) {
-  const entry = getEntry(trashHistory, sessionId);
-  return entry ? entry.items : [];
-}
-
-export function removeTrashed(sessionId, ids) {
-  const entry = getEntry(trashHistory, sessionId);
-  if (!entry) return;
-  const remove = new Set(ids);
-  entry.items = entry.items.filter((item) => !remove.has(item.id));
-}
-
-export function clearTrashed(sessionId) {
-  trashHistory.delete(sessionId);
-}
-
-// Periodic cleanup so the maps don't grow forever.
+// Periodic cleanup so the map doesn't grow forever.
 setInterval(() => {
-  for (const store of [scans, trashHistory]) {
-    for (const [key, entry] of store) {
-      if (isExpired(entry)) store.delete(key);
-    }
+  for (const [key, entry] of scans) {
+    if (isExpired(entry)) scans.delete(key);
   }
 }, 5 * 60 * 1000).unref();

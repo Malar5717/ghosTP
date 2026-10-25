@@ -8,6 +8,13 @@
       "when": 1792866691989,
       "tag": "0000_open_tarantula",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1792950766707,
+      "tag": "0001_easy_cassandra_nova",
+      "breakpoints": true
     }
   ]
 }

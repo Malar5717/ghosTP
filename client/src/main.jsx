@@ -19,7 +19,13 @@ function App() {
   const [confirming, setConfirming] = useState(null);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
-  const [recent, setRecent] = useState([]);
+
+  const [activityOpen, setActivityOpen] = useState(false);
+  const [activityItems, setActivityItems] = useState([]);
+  const [activityCounts, setActivityCounts] = useState({ trashed: 0, restored: 0, deleted: 0 });
+  const [activityLoading, setActivityLoading] = useState(false);
+  const [activitySelected, setActivitySelected] = useState(new Set());
+  const [activityError, setActivityError] = useState("");
 
   const checkAuth = async () => {
     setLoading(true);
@@ -35,24 +41,69 @@ function App() {
     }
   };
 
-  const loadRecent = async () => {
-    try {
-      const res = await fetch(`${API}/trash/recent`, { credentials: "include" });
-      if (!res.ok) return;
-      const data = await res.json();
-      setRecent(data.items || []);
-    } catch {
-      /* ignore */
-    }
-  };
-
   useEffect(() => {
     checkAuth();
   }, []);
 
   useEffect(() => {
-    if (user) loadRecent();
-  }, [user]);
+    if (!activityOpen) return;
+    const onKey = (e) => {
+      if (e.key === "Escape") setActivityOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [activityOpen]);
+
+  const loadActivity = async () => {
+    setActivityLoading(true);
+    setActivityError("");
+    try {
+      const res = await fetch(`${API}/activity`, { credentials: "include" });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Failed to load activity");
+      setActivityItems(data.items || []);
+      setActivityCounts(data.counts || { trashed: 0, restored: 0, deleted: 0 });
+      setActivitySelected(new Set());
+    } catch (e) {
+      setActivityError(e.message);
+    } finally {
+      setActivityLoading(false);
+    }
+  };
+
+  const openActivity = () => {
+    setActivityOpen(true);
+    loadActivity();
+  };
+
+  const toggleActivityItem = (id) => {
+    const next = new Set(activitySelected);
+    next.has(id) ? next.delete(id) : next.add(id);
+    setActivitySelected(next);
+  };
+
+  const restoreActivitySelected = async () => {
+    const ids = [...activitySelected];
+    if (ids.length === 0) return;
+    setBusy(true);
+    setActivityError("");
+    try {
+      const res = await fetch(`${API}/trash/undo`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ ids }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Restore failed");
+      setResult(data);
+      await loadActivity();
+    } catch (e) {
+      setActivityError(e.message);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const connect = () => {
     window.location.href = `${API}/auth/google`;
@@ -65,7 +116,9 @@ function App() {
       setResults([]);
       setSelected(new Set());
       setSelectedProtected(new Set());
-      setRecent([]);
+      setActivityItems([]);
+      setActivitySelected(new Set());
+      setActivityOpen(false);
       setResult(null);
     } catch {
       setError("Failed to disconnect");
@@ -139,7 +192,6 @@ function App() {
       setSelected(new Set());
       setSelectedProtected(new Set());
       setResults((prev) => prev.filter((r) => !data.moved.includes(r.id)));
-      loadRecent();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -160,7 +212,6 @@ function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Restore failed");
       setResult(data);
-      loadRecent();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -177,6 +228,35 @@ function App() {
   const risky = results.filter(
     (r) => (selected.has(r.id) || selectedProtected.has(r.id)) && RISKY_SENDER.test(r.from)
   );
+
+  const selectableActivityIds = activityItems
+    .filter((i) => i.status === "trashed")
+    .map((i) => i.id);
+
+  const toggleAllActivity = () => {
+    setActivitySelected(
+      activitySelected.size === selectableActivityIds.length
+        ? new Set()
+        : new Set(selectableActivityIds)
+    );
+  };
+
+  const formatDate = (value) => {
+    if (!value) return "";
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
+  };
+
+  const STATUS_LABEL = {
+    trashed: "In Trash",
+    restored: "Restored",
+    deleted: "Deleted",
+  };
+  const STATUS_COLOR = {
+    trashed: "#b45309",
+    restored: "#166534",
+    deleted: "#991b1b",
+  };
 
   const renderTable = (rows, selection, onToggle) => (
     <table border="1" cellPadding="6" cellSpacing="0" style={{ borderCollapse: "collapse", width: "100%" }}>
@@ -211,7 +291,28 @@ function App() {
 
   return (
     <div style={{ padding: 20, fontFamily: "system-ui", maxWidth: 1100 }}>
-      <h1>ghosTP</h1>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <h1 style={{ margin: 0 }}>ghosTP</h1>
+        {user && (
+          <button
+            onClick={openActivity}
+            title="Activity log"
+            aria-label="Activity log"
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: "50%",
+              border: "1px solid #ccc",
+              background: "#f2f2f2",
+              fontWeight: 600,
+              fontSize: 16,
+              cursor: "pointer",
+            }}
+          >
+            {user.email?.[0]?.toUpperCase() || "?"}
+          </button>
+        )}
+      </div>
 
       {error && <p style={{ color: "red" }}>{error}</p>}
 
@@ -330,24 +431,6 @@ function App() {
             </div>
           )}
 
-          {recent.length > 0 && (
-            <div style={{ marginTop: 28 }}>
-              <h3>Recently trashed ({recent.length})</h3>
-              <ul>
-                {recent.map((item) => (
-                  <li key={item.id}>
-                    {item.subject || item.id}
-                    {item.from ? ` — ${item.from}` : ""}{" "}
-                    <button onClick={() => undo([item.id])} disabled={busy}>Restore</button>
-                  </li>
-                ))}
-              </ul>
-              <button onClick={() => undo(recent.map((r) => r.id))} disabled={busy}>
-                Restore all
-              </button>
-            </div>
-          )}
-
           {confirming && (
             <div
               style={{
@@ -383,6 +466,121 @@ function App() {
             </div>
           )}
         </>
+      )}
+
+      {user && activityOpen && (
+        <div
+          onClick={() => setActivityOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,0.35)",
+            zIndex: 50,
+          }}
+        >
+          <aside
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "absolute",
+              top: 0,
+              right: 0,
+              bottom: 0,
+              width: "min(520px, 100%)",
+              background: "#fff",
+              boxShadow: "-4px 0 16px rgba(0,0,0,0.15)",
+              padding: 20,
+              overflowY: "auto",
+              display: "flex",
+              flexDirection: "column",
+              gap: 12,
+            }}
+          >
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>Activity</h2>
+              <button onClick={() => setActivityOpen(false)} aria-label="Close">✕</button>
+            </div>
+
+            <p style={{ margin: 0, fontSize: 14 }}>
+              Signed in as <strong>{user.email}</strong>{" "}
+              <button onClick={disconnect} disabled={busy}>Disconnect</button>
+            </p>
+
+            <p style={{ margin: 0, fontSize: 14, color: "#555" }}>
+              In Trash: {activityCounts.trashed} · Restored: {activityCounts.restored} · Deleted:{" "}
+              {activityCounts.deleted}
+            </p>
+
+            {activityError && <p style={{ color: "red", margin: 0 }}>{activityError}</p>}
+
+            {activityLoading ? (
+              <p>Loading activity...</p>
+            ) : activityItems.length === 0 ? (
+              <p style={{ color: "#555" }}>No emails moved to Trash yet.</p>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14 }}>
+                  <span>Selected: {activitySelected.size}</span>
+                  <button onClick={toggleAllActivity} disabled={selectableActivityIds.length === 0}>
+                    Select all / none
+                  </button>
+                  <button
+                    onClick={restoreActivitySelected}
+                    disabled={activitySelected.size === 0 || busy}
+                  >
+                    {busy ? "Restoring..." : "Restore selected"}
+                  </button>
+                </div>
+
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {activityItems.map((item) => {
+                    const selectable = item.status === "trashed";
+                    return (
+                      <li
+                        key={item.id}
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          padding: "10px 0",
+                          borderBottom: "1px solid #eee",
+                          opacity: selectable ? 1 : 0.75,
+                        }}
+                      >
+                        <input
+                          type="checkbox"
+                          disabled={!selectable}
+                          checked={activitySelected.has(item.id)}
+                          onChange={() => toggleActivityItem(item.id)}
+                          style={{ marginTop: 3 }}
+                        />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, wordBreak: "break-word" }}>
+                            {item.subject || "(details no longer available)"}
+                          </div>
+                          <div style={{ fontSize: 13, color: "#555", wordBreak: "break-word" }}>
+                            {item.sender || "unknown sender"}
+                          </div>
+                          <div style={{ fontSize: 12, color: "#666" }}>
+                            Moved: {formatDate(item.movedAt)}
+                            {item.restoredAt ? ` · Restored: ${formatDate(item.restoredAt)}` : ""}
+                          </div>
+                        </div>
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: STATUS_COLOR[item.status] || "#555",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {STATUS_LABEL[item.status] || item.status}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </aside>
+        </div>
       )}
     </div>
   );

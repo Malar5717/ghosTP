@@ -1,13 +1,10 @@
 import { Router } from "express";
+import { and, eq, inArray, sql } from "drizzle-orm";
+import { db } from "../db/index.js";
+import { activity } from "../db/schema.js";
 import { getGmailClient } from "../utils/gmail.js";
 import { getMessageState, trashMessages, untrashMessages } from "../utils/gmailActions.js";
-import {
-    getScan,
-    getScanAge,
-    addTrashed,
-    getTrashed,
-    removeTrashed,
-} from "../utils/scanStore.js";
+import { getScan, getScanAge } from "../utils/scanStore.js";
 
 const router = Router();
 
@@ -92,14 +89,33 @@ router.post("/move", async (req, res) => {
         const failed = results.filter((r) => !r.ok);
 
         if (moved.length > 0) {
-            addTrashed(
-                req.sessionID,
-                moved.map((id) => ({
-                    id,
-                    movedAt: new Date().toISOString(),
-                    ...(display.get(id) || {}),
-                }))
-            );
+            try {
+                await db
+                    .insert(activity)
+                    .values(
+                        moved.map((id) => ({
+                            userId: req.session.user.id,
+                            messageId: id,
+                            subject: display.get(id)?.subject || null,
+                            sender: display.get(id)?.from || null,
+                            status: "trashed",
+                            movedAt: new Date(),
+                            restoredAt: null,
+                        }))
+                    )
+                    .onConflictDoUpdate({
+                        target: [activity.userId, activity.messageId],
+                        set: {
+                            subject: sql`excluded.subject`,
+                            sender: sql`excluded.sender`,
+                            status: sql`'trashed'`,
+                            movedAt: sql`excluded.moved_at`,
+                            restoredAt: sql`null`,
+                        },
+                    });
+            } catch (e) {
+                console.error("Failed to record trash activity", e);
+            }
         }
 
         res.json({
@@ -119,13 +135,6 @@ router.post("/move", async (req, res) => {
     }
 });
 
-router.get("/recent", (req, res) => {
-    if (!req.session.user) {
-        return res.status(401).json({ error: "Not authenticated" });
-    }
-    res.json({ items: getTrashed(req.sessionID) });
-});
-
 router.post("/undo", async (req, res) => {
     try {
         if (!req.session.user) {
@@ -143,12 +152,22 @@ router.post("/undo", async (req, res) => {
             return res.status(400).json({ error: "Invalid message ID format" });
         }
 
-        // Only restore what this session actually trashed.
-        const known = new Set(getTrashed(req.sessionID).map((t) => t.id));
+        // Only restore what was actually trashed by this user.
+        const knownRows = await db
+            .select()
+            .from(activity)
+            .where(
+                and(
+                    eq(activity.userId, req.session.user.id),
+                    eq(activity.status, "trashed"),
+                    inArray(activity.messageId, ids)
+                )
+            );
+        const known = new Set(knownRows.map((r) => r.messageId));
         const restorable = ids.filter((id) => known.has(id));
         const skipped = ids
             .filter((id) => !known.has(id))
-            .map((id) => ({ id, reason: "Not in this session's recent Trash list" }));
+            .map((id) => ({ id, reason: "Not in your Trash activity" }));
 
         const gmail = await getGmailClient(req.session.user.id);
         const results = await untrashMessages(gmail, restorable);
@@ -157,7 +176,15 @@ router.post("/undo", async (req, res) => {
         const failed = results.filter((r) => !r.ok);
 
         if (restored.length > 0) {
-            removeTrashed(req.sessionID, restored);
+            await db
+                .update(activity)
+                .set({ status: "restored", restoredAt: new Date() })
+                .where(
+                    and(
+                        eq(activity.userId, req.session.user.id),
+                        inArray(activity.messageId, restored)
+                    )
+                );
         }
 
         res.json({

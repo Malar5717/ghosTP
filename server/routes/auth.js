@@ -7,7 +7,7 @@ import {
   generateState,
 } from "../utils/pkce.js";
 import { db } from "../db/index.js";
-import { users, tokens } from "../db/schema.js";
+import { users, tokens, activity } from "../db/schema.js";
 import { encrypt, decrypt } from "../utils/crypto.js";
 
 const router = Router();
@@ -95,7 +95,13 @@ router.get("/google/callback", async (req, res) => {
     const existing = await db.select().from(users).where(eq(users.googleId, googleId)).limit(1);
     if (existing.length > 0) {
       user = existing[0];
-      await db.update(users).set({ updatedAt: new Date() }).where(eq(users.id, user.id));
+      // Keep the stored email in sync (users can change their Gmail address).
+      const [updated] = await db
+        .update(users)
+        .set({ email, updatedAt: new Date() })
+        .where(eq(users.id, user.id))
+        .returning();
+      user = updated;
     } else {
       const [created] = await db.insert(users).values({ googleId, email }).returning();
       user = created;
@@ -163,6 +169,13 @@ router.get("/disconnect", async (req, res) => {
 
       await db.delete(tokens).where(eq(tokens.userId, userId));
     }
+
+    // Disconnect deletes stored data. Activity rows are kept so the log
+    // survives a reconnect, but the email content (subject/sender) is scrubbed.
+    await db
+      .update(activity)
+      .set({ subject: null, sender: null })
+      .where(eq(activity.userId, userId));
 
     req.session.destroy((err) => {
       if (err) {
