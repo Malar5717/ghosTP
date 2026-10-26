@@ -1,9 +1,35 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import ReactDOM from "react-dom/client";
+import "./styles.css";
 
 const API = "http://localhost:4000";
 
 const RISKY_SENDER = /(bank|gov|tax|irs|payment|paypal|stripe|visa|mastercard|invoice|billing)/i;
+
+function readCoverScale(element) {
+  if (!element) return 0;
+  const transform = window.getComputedStyle(element).transform;
+  if (!transform || transform === "none") return 0;
+  try {
+    const matrix = new DOMMatrixReadOnly(transform);
+    return Math.min(1, Math.max(0, Math.hypot(matrix.a, matrix.b)));
+  } catch {
+    return 1;
+  }
+}
+
+function readGhostScale(element) {
+  if (!element) return 1;
+  const transform = window.getComputedStyle(element).transform;
+  if (!transform || transform === "none") return 1;
+  try {
+    const matrix = new DOMMatrixReadOnly(transform);
+    return Math.max(1, Math.hypot(matrix.a, matrix.b));
+  } catch {
+    return 1;
+  }
+}
 
 function App() {
   const [user, setUser] = useState(null);
@@ -12,6 +38,15 @@ function App() {
 
   const [age, setAge] = useState("1m");
   const [scanning, setScanning] = useState(false);
+  const [ghostSvgMarkup, setGhostSvgMarkup] = useState("");
+  const [mouthAnimation, setMouthAnimation] = useState(0);
+  const [mouthCover, setMouthCover] = useState(null);
+  const [coverFinished, setCoverFinished] = useState(false);
+  const [coverClose, setCoverClose] = useState(null);
+  const [scanOutcome, setScanOutcome] = useState(null);
+  const [darkHome, setDarkHome] = useState(false);
+  const coverCircleRef = useRef(null);
+  const ghostScalerRef = useRef(null);
   const [results, setResults] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [selectedProtected, setSelectedProtected] = useState(new Set());
@@ -33,9 +68,29 @@ function App() {
     try {
       const res = await fetch(`${API}/auth/me`, { credentials: "include" });
       const data = await res.json();
-      setUser(data.authenticated ? data.user : null);
+
+      if (!data.authenticated) {
+        setUser(null);
+        setResults([]);
+        setDarkHome(false);
+        return;
+      }
+
+      setUser(data.user);
+
+      try {
+        const scanRes = await fetch(`${API}/scan/results`, { credentials: "include" });
+        if (!scanRes.ok) throw new Error("Couldn't restore scan");
+        const scanData = await scanRes.json();
+        const restored = Array.isArray(scanData.results) ? scanData.results : [];
+        setResults(restored);
+        setDarkHome(restored.length > 0);
+      } catch {
+        setResults([]);
+        setDarkHome(false);
+      }
     } catch {
-      setError("Failed to check session");
+      setError("Couldn't check your session.");
     } finally {
       setLoading(false);
     }
@@ -43,6 +98,23 @@ function App() {
 
   useEffect(() => {
     checkAuth();
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/ghost.svg")
+      .then((res) => {
+        if (!res.ok) throw new Error("Failed to load ghost illustration");
+        return res.text();
+      })
+      .then((markup) => {
+        const svgStart = markup.indexOf("<svg");
+        if (active && svgStart !== -1) setGhostSvgMarkup(markup.slice(svgStart));
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -54,13 +126,75 @@ function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [activityOpen]);
 
+  useLayoutEffect(() => {
+    const dark = Boolean(user && darkHome);
+    document.documentElement.classList.toggle("results-dark", dark);
+    document.body.classList.toggle("results-dark", dark);
+    return () => {
+      document.documentElement.classList.remove("results-dark");
+      document.body.classList.remove("results-dark");
+    };
+  }, [user, darkHome]);
+
+  useLayoutEffect(() => {
+    if (!mouthCover) return;
+    const mouth = document.querySelector("#ghost-mouth");
+    const art = document.querySelector(".summon-button .ghost-art");
+    if (!mouth && !art) return;
+    let x;
+    let y;
+    if (mouth) {
+      const rect = mouth.getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = rect.top + rect.height / 2;
+    } else {
+      const rect = art.getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = rect.top + rect.height * (286 / 512);
+    }
+    if (Math.abs(x - mouthCover.x) < 0.5 && Math.abs(y - mouthCover.y) < 0.5) return;
+    setMouthCover((prev) =>
+      prev && prev.id === mouthCover.id ? { ...prev, x, y } : prev
+    );
+  }, [mouthCover?.id]);
+
+  useEffect(() => {
+    if (!mouthCover || !scanOutcome) return;
+
+    if (scanOutcome === "success") {
+      if (!coverFinished) return;
+      setDarkHome(true);
+      setCoverClose(null);
+      setMouthCover(null);
+      setCoverFinished(false);
+      return;
+    }
+
+    if (coverClose) return;
+
+    const scale = readCoverScale(coverCircleRef.current);
+    if (scale <= 0.01) {
+      setMouthCover(null);
+      setCoverFinished(false);
+      setScanOutcome(null);
+      setScanning(false);
+      return;
+    }
+
+    setCoverClose({
+      scale,
+      ghostScale: readGhostScale(ghostScalerRef.current),
+      duration: Math.max(200, Math.round(scale * 6000)),
+    });
+  }, [mouthCover, coverFinished, scanOutcome, coverClose]);
+
   const loadActivity = async () => {
     setActivityLoading(true);
     setActivityError("");
     try {
       const res = await fetch(`${API}/activity`, { credentials: "include" });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Failed to load activity");
+      if (!res.ok) throw new Error(data.error || "Couldn't load activity.");
       setActivityItems(data.items || []);
       setActivityCounts(data.counts || { trashed: 0, restored: 0, deleted: 0 });
       setActivitySelected(new Set());
@@ -95,7 +229,7 @@ function App() {
         body: JSON.stringify({ ids }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Restore failed");
+      if (!res.ok) throw new Error(data.error || "Couldn't restore emails.");
       setResult(data);
       await loadActivity();
     } catch (e) {
@@ -120,12 +254,78 @@ function App() {
       setActivitySelected(new Set());
       setActivityOpen(false);
       setResult(null);
+      setMouthCover(null);
+      setCoverFinished(false);
+      setCoverClose(null);
+      setScanOutcome(null);
+      setDarkHome(false);
     } catch {
-      setError("Failed to disconnect");
+      setError("Couldn't disconnect. Try again.");
     }
   };
 
+  const triggerMouthCover = () => {
+    const mouth = document.querySelector("#ghost-mouth");
+    const art = document.querySelector(".summon-button .ghost-art");
+    if (!mouth && !art) return;
+
+    let x;
+    let y;
+    if (mouth) {
+      const rect = mouth.getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = rect.top + rect.height / 2;
+    } else {
+      const rect = art.getBoundingClientRect();
+      x = rect.left + rect.width / 2;
+      y = rect.top + rect.height * (286 / 512);
+    }
+
+    const artRect = art ? art.getBoundingClientRect() : null;
+
+    let originX = 50;
+    let originY = (286 / 512) * 100;
+    const svg = art?.querySelector("svg");
+    const viewBox = svg?.viewBox?.baseVal;
+    if (mouth && viewBox?.width && viewBox?.height) {
+      const bbox = mouth.getBBox();
+      originX = ((bbox.x + bbox.width / 2 - viewBox.x) / viewBox.width) * 100;
+      originY = ((bbox.y + bbox.height / 2 - viewBox.y) / viewBox.height) * 100;
+    }
+
+    const baseWidth = art?.offsetWidth || 54;
+    const baseHeight = art?.offsetHeight || 54;
+    const localX = (originX / 100) * baseWidth;
+    const localY = (originY / 100) * baseHeight;
+    const reachX = Math.max(localX, baseWidth - localX);
+    const reachY = Math.max(localY, baseHeight - localY);
+    const screenX = Math.max(x, window.innerWidth - x);
+    const screenY = Math.max(y, window.innerHeight - y);
+    const ghostScale = Math.max(
+      1,
+      reachX > 0 ? (screenX / reachX) * 1.1 : 1,
+      reachY > 0 ? (screenY / reachY) * 1.1 : 1
+    );
+
+    setCoverFinished(false);
+    setCoverClose(null);
+    setMouthCover((prev) => ({
+      x,
+      y,
+      ghostOriginX: originX,
+      ghostOriginY: originY,
+      ghostScale,
+      labelX: artRect ? artRect.left + artRect.width / 2 : x,
+      labelY: artRect ? artRect.bottom + 6 : y + 28,
+      id: (prev?.id || 0) + 1,
+    }));
+  };
+
   const scan = async () => {
+    if (scanning || mouthCover) return;
+    setScanOutcome(null);
+    triggerMouthCover();
+    setMouthAnimation((count) => count + 1);
     setScanning(true);
     setError("");
     setResult(null);
@@ -139,10 +339,13 @@ function App() {
         body: JSON.stringify({ age }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Scan failed");
+      if (!res.ok) throw new Error(data.error || "Scan failed. Try again.");
       setResults(data.results || []);
+      setScanOutcome("success");
     } catch (e) {
       setError(e.message);
+      setDarkHome(false);
+      setScanOutcome("error");
     } finally {
       setScanning(false);
     }
@@ -185,7 +388,7 @@ function App() {
         body: JSON.stringify({ ids, allowProtected: !!isProtected }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Move failed");
+      if (!res.ok) throw new Error(data.error || "Couldn't move emails to Trash.");
 
       setResult(data);
       setConfirming(null);
@@ -210,7 +413,7 @@ function App() {
         body: JSON.stringify({ ids }),
       });
       const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Restore failed");
+      if (!res.ok) throw new Error(data.error || "Couldn't restore emails.");
       setResult(data);
     } catch (e) {
       setError(e.message);
@@ -219,7 +422,7 @@ function App() {
     }
   };
 
-  if (loading) return <div style={{ padding: 20 }}>Loading...</div>;
+  if (loading) return <div className="loading-screen">Loading…</div>;
 
   const matches = results.filter((r) => r.label === "Match" && !r.isImportant);
   const unclear = results.filter((r) => r.label === "Unclear" && !r.isImportant);
@@ -241,10 +444,33 @@ function App() {
     );
   };
 
-  const formatDate = (value) => {
-    if (!value) return "";
-    const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? "" : d.toLocaleString();
+  const formatDateTime = (value) => {
+    if (value === null || value === undefined || value === "") return null;
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return null;
+    return {
+      iso: date.toISOString(),
+      date: new Intl.DateTimeFormat("en-GB", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "2-digit",
+      }).format(date),
+      time: new Intl.DateTimeFormat("en-US", {
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true,
+      }).format(date),
+    };
+  };
+
+  const renderDateTime = (value) => {
+    const formatted = formatDateTime(value);
+    return formatted ? (
+      <span className="date-time">
+        <time dateTime={formatted.iso}>{formatted.date}</time>
+        <time className="date-time-clock" dateTime={formatted.iso}>{formatted.time}</time>
+      </span>
+    ) : <span className="date-unavailable">—</span>;
   };
 
   const STATUS_LABEL = {
@@ -252,21 +478,15 @@ function App() {
     restored: "Restored",
     deleted: "Deleted",
   };
-  const STATUS_COLOR = {
-    trashed: "#b45309",
-    restored: "#166534",
-    deleted: "#991b1b",
-  };
-
   const renderTable = (rows, selection, onToggle) => (
-    <table border="1" cellPadding="6" cellSpacing="0" style={{ borderCollapse: "collapse", width: "100%" }}>
+    <table className="mail-table">
       <thead>
         <tr>
           <th></th>
           <th>From</th>
           <th>Subject</th>
           <th>Date</th>
-          <th>Why</th>
+          <th>Why flagged</th>
         </tr>
       </thead>
       <tbody>
@@ -281,7 +501,7 @@ function App() {
             </td>
             <td>{r.from}</td>
             <td>{r.subject}</td>
-            <td>{r.date}</td>
+            <td>{renderDateTime(r.date)}</td>
             <td>{r.reason}</td>
           </tr>
         ))}
@@ -290,68 +510,95 @@ function App() {
   );
 
   return (
-    <div style={{ padding: 20, fontFamily: "system-ui", maxWidth: 1100 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <h1 style={{ margin: 0 }}>ghosTP</h1>
-        {user && (
+    <div className={`app-shell${user ? "" : " landing-shell"}${user && darkHome ? " is-dark" : ""}${mouthCover ? " is-scanning" : ""}`}>
+      {user && <header className="topbar">
+        <h1 className="brand">ghosTP</h1>
           <button
             onClick={openActivity}
-            title="Activity log"
-            aria-label="Activity log"
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: "50%",
-              border: "1px solid #ccc",
-              background: "#f2f2f2",
-              fontWeight: 600,
-              fontSize: 16,
-              cursor: "pointer",
-            }}
+            title="Activity"
+            aria-label="Activity"
+            className="avatar-button"
           >
             {user.email?.[0]?.toUpperCase() || "?"}
           </button>
-        )}
-      </div>
-
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      </header>}
 
       {!user ? (
-        <>
-          <p>Sign in with Google to scan old OTP/verification emails.</p>
-          <p style={{ fontSize: 14, color: "#555" }}>
-            We'll request access to read and move emails to Trash (<code>gmail.modify</code>).
-            Nothing is deleted automatically. You choose what moves.
-          </p>
-          <button onClick={connect}>Connect Gmail</button>
-        </>
+        <main className="landing-content">
+          <section className="landing-panel">
+            <h1 className="landing-brand">gh<span className="landing-ghost-o"><img src="/ghost-o.svg" alt="" /></span>sTP</h1>
+            <p className="landing-tagline">for the ghosted OTPs haunting your inbox</p>
+            <div className="landing-rule" aria-hidden="true" />
+            <p className="landing-instruction">Sign in to scan your Gmail.</p>
+            <p className="landing-description"><strong>ghosTP can find emails and move selected ones to Trash. Nothing moves without your approval.</strong></p>
+            {error && <p className="notice notice-error landing-error" role="alert">{error}</p>}
+          <button className="button button-primary landing-connect" onClick={connect}>Connect Gmail <span aria-hidden="true">↗</span></button></section>
+        </main>
       ) : (
-        <>
-          <p>
-            Signed in as <strong>{user.email}</strong>{" "}
-            <button onClick={disconnect} disabled={busy}>Disconnect</button>
-          </p>
+        <main className="main-content">
+          {error && <p className="notice notice-error" role="alert">{error}</p>}
+          <section className="workspace-heading account-heading"><p className="account-line"><span className="status-dot" />Signed in as <strong>{user.email}</strong>{" "}
+            <button className="button button-quiet" onClick={disconnect} disabled={busy}>Disconnect</button></p></section>
 
-          <div style={{ marginTop: 16 }}>
+          <section className="scan-panel"><div><h3>Scan older emails</h3><p className="muted">Find old verification codes.</p></div><div className="scan-controls">
             <label>
-              Age:{" "}
+              Older than:{" "}
               <select value={age} onChange={(e) => setAge(e.target.value)} disabled={scanning}>
                 <option value="1w">1 week</option>
                 <option value="1m">1 month</option>
                 <option value="3m">3 months</option>
               </select>
             </label>{" "}
-            <button onClick={scan} disabled={scanning}>
-              {scanning ? "Scanning..." : "Scan"}
-            </button>
-          </div>
+            <div className="summon-control">
+              <button
+                className="summon-button"
+                onClick={scan}
+                disabled={scanning}
+                aria-label={scanning ? "Scanning emails" : "Summon old emails"}
+                title={scanning ? undefined : "Summon old emails"}
+              >
+                <span className="summon-caption">
+                  {scanning ? "summoning..." : results.length > 0 ? "scan again?" : "summon old emails"}
+                </span>
+                <span
+                  key={mouthAnimation}
+                  className={`ghost-art${mouthAnimation ? " mouth-opening" : ""}${mouthCover ? " is-scanning" : ""}`}
+                  style={{
+                    "--ghost-origin-x": `${mouthCover?.ghostOriginX ?? 50}%`,
+                    "--ghost-origin-y": `${mouthCover?.ghostOriginY ?? (286 / 512) * 100}%`,
+                    "--ghost-target-scale": `${mouthCover?.ghostScale ?? 1}`,
+                    "--ghost-start-scale": `${coverClose?.ghostScale ?? 1}`,
+                    "--cover-shrink-duration": `${coverClose?.duration ?? 6000}ms`,
+                  }}
+                  aria-hidden="true"
+                >
+                  <span
+                    ref={ghostScalerRef}
+                    className={`ghost-scaler${mouthCover ? (coverClose ? " is-returning" : " is-swallowing") : ""}`}
+                  >
+                    {ghostSvgMarkup ? (
+                      <span
+                        className="ghost-art-svg"
+                        dangerouslySetInnerHTML={{ __html: ghostSvgMarkup }}
+                      />
+                    ) : (
+                      <img src="/ghost.svg" alt="" />
+                    )}
+                  </span>
+                </span>
+                {scanning && !mouthCover && (
+                  <span className="scan-loading" role="status">Scanning…</span>
+                )}
+              </button>
+            </div>
+          </div></section>
 
           {result && (
-            <div style={{ margin: "16px 0", padding: 12, border: "1px solid #ccc", background: "#f7f7f7" }}>
+            <div className="notice notice-success">
               <strong>
                 {result.movedCount !== undefined
-                  ? `Moved ${result.movedCount} to Trash, skipped ${result.skippedCount}.`
-                  : `Restored ${result.restoredCount}, skipped ${result.skippedCount}.`}
+                  ? `Moved ${result.movedCount} to Trash. Skipped ${result.skippedCount}.`
+                  : `Restored ${result.restoredCount}. Skipped ${result.skippedCount}.`}
               </strong>
               {result.moved?.length > 0 && (
                 <>
@@ -370,10 +617,10 @@ function App() {
           )}
 
           {results.length > 0 && (
-            <div style={{ marginTop: 20 }}>
+            <section className="results-section">
               <p>
-                Found: {results.length} | Selected: {selected.size}{" "}
-                <button onClick={toggleAll}>Select all / none</button>{" "}
+                {results.length} found · {selected.size} selected{" "}
+                  <button className="button button-outline" onClick={toggleAll}>Select all / none</button>{" "}
                 <button
                   onClick={() => setConfirming({ ids: [...selected], protected: false })}
                   disabled={selected.size === 0 || busy}
@@ -383,24 +630,23 @@ function App() {
               </p>
 
               {risky.length > 0 && (
-                <p style={{ color: "#b45309" }}>
-                  Heads up: {risky.length} selected sender(s) look like a bank, government or
-                  payment service. Double-check those before moving.
+                <p className="warning-text" style={{ color: "#b45309" }}>
+                  Heads up! Some selected emails may be important. Check them before moving to Trash.
                 </p>
               )}
 
               {matches.length > 0 && (
                 <>
-                  <h3>Matches ({matches.length})</h3>
+                  <h3 className="group-title">Matches <span className="count">{matches.length}</span></h3>
                   {renderTable(matches, selected, toggle)}
                 </>
               )}
 
               {unclear.length > 0 && (
                 <>
-                  <h3>Unclear ({unclear.length})</h3>
+                  <h3 className="group-title">Needs review <span className="count">{unclear.length}</span></h3>
                   <p style={{ fontSize: 13, color: "#555" }}>
-                    These might be verification emails. Review them yourself before selecting.
+                    These might be verification emails. Check before selecting.
                   </p>
                   {renderTable(unclear, selected, toggle)}
                 </>
@@ -408,31 +654,30 @@ function App() {
 
               {protectedRows.length > 0 && (
                 <>
-                  <h3>Important (protected) ({protectedRows.length})</h3>
+                  <h3 className="group-title">Important <span className="count">{protectedRows.length}</span></h3>
                   <p style={{ fontSize: 13, color: "#555" }}>
-                    Gmail marks these as important. You can select and move them, but you'll get
-                    an extra confirmation first. They can be restored from "Recently trashed".
+                    Gmail marks these as important. Moving them needs extra confirmation.
                   </p>
                   <p>
-                    Selected: {selectedProtected.size}{" "}
-                    <button onClick={toggleAllProtected}>Select all / none</button>{" "}
+                    {selectedProtected.size} selected{" "}
+                    <button className="button button-outline" onClick={toggleAllProtected}>Select all / none</button>{" "}
                     <button
                       onClick={() =>
                         setConfirming({ ids: [...selectedProtected], protected: true })
                       }
                       disabled={selectedProtected.size === 0 || busy}
                     >
-                      Move {selectedProtected.size || ""} important to Trash
+                      Move {selectedProtected.size} important to Trash
                     </button>
                   </p>
                   {renderTable(protectedRows, selectedProtected, toggleProtected)}
                 </>
               )}
-            </div>
+            </section>
           )}
 
           {confirming && (
-            <div
+            <div className="modal-backdrop"
               style={{
                 position: "fixed",
                 inset: 0,
@@ -442,35 +687,35 @@ function App() {
                 justifyContent: "center",
               }}
             >
-              <div style={{ background: "#fff", padding: 20, borderRadius: 8, maxWidth: 460 }}>
+              <div className="confirm-dialog">
                 <h3>
                   Move {confirming.ids.length} email{confirming.ids.length === 1 ? "" : "s"} to Trash?
                 </h3>
-                <p>They will be moved to Gmail Trash, not deleted. You can restore them here.</p>
+                <p>You can restore them later from Activity.</p>
                 {confirming.protected && (
-                  <p style={{ color: "#b45309" }}>
-                    These emails are marked important by Gmail. This is an explicit exception
-                    to the usual safety rule.
+                  <p className="warning-text" style={{ color: "#b45309" }}>
+                    Heads up! Gmail marks these emails as important. Move them anyway?
                   </p>
                 )}
                 {risky.length > 0 && (
-                  <p style={{ color: "#b45309" }}>
-                    {risky.length} of them look like bank, government or payment senders.
+                  <p className="warning-text" style={{ color: "#b45309" }}>
+                    {risky.length} may be from a bank, government, or payment service.
                   </p>
                 )}
-                <button onClick={moveToTrash} disabled={busy}>
-                  {busy ? "Moving..." : "Yes, move to Trash"}
+                <button className="button button-primary" onClick={moveToTrash} disabled={busy}>
+                  {busy ? "Moving…" : "Move to Trash"}
                 </button>{" "}
-                <button onClick={() => setConfirming(null)} disabled={busy}>Cancel</button>
+                <button className="button button-outline" onClick={() => setConfirming(null)} disabled={busy}>Cancel</button>
               </div>
             </div>
           )}
-        </>
+        </main>
       )}
 
       {user && activityOpen && (
         <div
           onClick={() => setActivityOpen(false)}
+          className="drawer-backdrop"
           style={{
             position: "fixed",
             inset: 0,
@@ -480,6 +725,10 @@ function App() {
         >
           <aside
             onClick={(e) => e.stopPropagation()}
+            className="activity-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="activity-title"
             style={{
               position: "absolute",
               top: 0,
@@ -495,82 +744,70 @@ function App() {
               gap: 12,
             }}
           >
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <h2 style={{ margin: 0 }}>Activity</h2>
-              <button onClick={() => setActivityOpen(false)} aria-label="Close">✕</button>
+            <div className="drawer-heading">
+              <div><h2 id="activity-title">Activity</h2></div>
+              <button className="button button-quiet close-button" onClick={() => setActivityOpen(false)} aria-label="Close">✕</button>
             </div>
 
-            <p style={{ margin: 0, fontSize: 14 }}>
-              Signed in as <strong>{user.email}</strong>{" "}
-              <button onClick={disconnect} disabled={busy}>Disconnect</button>
+            <p className="drawer-account">
+              <span>ACCOUNT <strong>{user.email}</strong></span>
+              <button className="button button-quiet" onClick={disconnect} disabled={busy}>Disconnect</button>
             </p>
 
-            <p style={{ margin: 0, fontSize: 14, color: "#555" }}>
-              In Trash: {activityCounts.trashed} · Restored: {activityCounts.restored} · Deleted:{" "}
-              {activityCounts.deleted}
-            </p>
+            <div className="activity-counts" aria-label="Activity totals">
+              <div><strong>{activityCounts.trashed}</strong><span>In Trash</span></div>
+              <div><strong>{activityCounts.restored}</strong><span>Restored</span></div>
+              <div><strong>{activityCounts.deleted}</strong><span>Deleted</span></div>
+            </div>
 
-            {activityError && <p style={{ color: "red", margin: 0 }}>{activityError}</p>}
+            {activityError && <p className="notice notice-error" role="alert">{activityError}</p>}
 
             {activityLoading ? (
-              <p>Loading activity...</p>
+              <p className="empty-state">Loading activity…</p>
             ) : activityItems.length === 0 ? (
-              <p style={{ color: "#555" }}>No emails moved to Trash yet.</p>
+              <p className="empty-state">No activity yet.</p>
             ) : (
               <>
-                <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14 }}>
-                  <span>Selected: {activitySelected.size}</span>
-                  <button onClick={toggleAllActivity} disabled={selectableActivityIds.length === 0}>
+                <div className="activity-toolbar">
+                  <span>{activitySelected.size} selected</span>
+                  <button className="button button-outline" onClick={toggleAllActivity} disabled={selectableActivityIds.length === 0}>
                     Select all / none
                   </button>
                   <button
+                    className="button button-primary"
                     onClick={restoreActivitySelected}
                     disabled={activitySelected.size === 0 || busy}
                   >
-                    {busy ? "Restoring..." : "Restore selected"}
+                    {busy ? "Restoring…" : "Restore selected"}
                   </button>
                 </div>
 
-                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                <ul className="activity-list">
                   {activityItems.map((item) => {
                     const selectable = item.status === "trashed";
                     return (
-                      <li
-                        key={item.id}
-                        style={{
-                          display: "flex",
-                          gap: 8,
-                          padding: "10px 0",
-                          borderBottom: "1px solid #eee",
-                          opacity: selectable ? 1 : 0.75,
-                        }}
-                      >
+                      <li key={item.id} className={!selectable ? "activity-row is-inactive" : "activity-row"}>
                         <input
+                          className="activity-checkbox"
                           type="checkbox"
                           disabled={!selectable}
                           checked={activitySelected.has(item.id)}
                           onChange={() => toggleActivityItem(item.id)}
-                          style={{ marginTop: 3 }}
+                          aria-label={item.subject ? `Select ${item.subject}` : "Select email"}
                         />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontWeight: 600, wordBreak: "break-word" }}>
-                            {item.subject || "(details no longer available)"}
+                        <div className="activity-entry">
+                          <div className="activity-subject">
+                            {item.subject || "Email details unavailable"}
                           </div>
-                          <div style={{ fontSize: 13, color: "#555", wordBreak: "break-word" }}>
-                            {item.sender || "unknown sender"}
+                          <div className="activity-sender">
+                            {item.sender || "Unknown sender"}
                           </div>
-                          <div style={{ fontSize: 12, color: "#666" }}>
-                            Moved: {formatDate(item.movedAt)}
-                            {item.restoredAt ? ` · Restored: ${formatDate(item.restoredAt)}` : ""}
+                          <div className="activity-dates">
+                            <span className="activity-date-entry"><span className="activity-date-label">Moved</span>{renderDateTime(item.movedAt)}</span>
+                            {item.restoredAt && <span className="activity-date-entry"><span className="activity-date-label">Restored</span>{renderDateTime(item.restoredAt)}</span>}
                           </div>
                         </div>
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: STATUS_COLOR[item.status] || "#555",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
+                        <span className={`activity-status status-${item.status}`}>
                           {STATUS_LABEL[item.status] || item.status}
                         </span>
                       </li>
@@ -582,6 +819,42 @@ function App() {
           </aside>
         </div>
       )}
+
+      {mouthCover &&
+        createPortal(
+          <div
+            key={mouthCover.id}
+            className="mouth-cover"
+            style={{
+              "--mouth-x": `${mouthCover.x}px`,
+              "--mouth-y": `${mouthCover.y}px`,
+              "--scan-label-x": `${mouthCover.labelX ?? mouthCover.x}px`,
+              "--scan-label-y": `${mouthCover.labelY ?? mouthCover.y + 28}px`,
+              "--cover-start-scale": `${coverClose?.scale ?? 1}`,
+              "--cover-shrink-duration": `${coverClose?.duration ?? 6000}ms`,
+            }}
+          >
+            <span
+              ref={coverCircleRef}
+              className={`mouth-cover-circle${coverClose ? " is-shrinking" : ""}`}
+              aria-hidden="true"
+              onAnimationEnd={(event) => {
+                if (event.animationName === "mouth-cover-expand" && !coverClose) {
+                  setCoverFinished(true);
+                }
+                if (event.animationName === "mouth-cover-shrink" && coverClose) {
+                  setMouthCover(null);
+                  setCoverFinished(false);
+                  setCoverClose(null);
+                  setScanOutcome(null);
+                  setScanning(false);
+                }
+              }}
+            />
+            {!coverClose && <span className="scan-loading-overlay" role="status">summoning...</span>}
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
