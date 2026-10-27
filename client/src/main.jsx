@@ -303,8 +303,8 @@ function App() {
     const screenY = Math.max(y, window.innerHeight - y);
     const ghostScale = Math.max(
       1,
-      reachX > 0 ? (screenX / reachX) * 1.1 : 1,
-      reachY > 0 ? (screenY / reachY) * 1.1 : 1
+      reachX > 0 ? (screenX / reachX) * 1.25 : 1,
+      reachY > 0 ? (screenY / reachY) * 1.25 : 1
     );
 
     setCoverFinished(false);
