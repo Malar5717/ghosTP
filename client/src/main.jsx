@@ -832,8 +832,49 @@ function App() {
               "--scan-label-y": `${mouthCover.labelY ?? mouthCover.y + 28}px`,
               "--cover-start-scale": `${coverClose?.scale ?? 1}`,
               "--cover-shrink-duration": `${coverClose?.duration ?? 6000}ms`,
+              "--ghost-origin-x": `${mouthCover?.ghostOriginX ?? 50}%`,
+              "--ghost-origin-y": `${mouthCover?.ghostOriginY ?? (286 / 512) * 100}%`,
+              "--ghost-target-scale": `${mouthCover?.ghostScale ?? 1}`,
+              "--ghost-start-scale": `${coverClose?.ghostScale ?? 1}`,
             }}
           >
+            <span
+              className="mouth-cover-ghost"
+              aria-hidden="true"
+              style={{
+                "--ghost-origin-x": `${mouthCover?.ghostOriginX ?? 50}%`,
+                "--ghost-origin-y": `${mouthCover?.ghostOriginY ?? (286 / 512) * 100}%`,
+                "--ghost-target-scale": `${mouthCover?.ghostScale ?? 1}`,
+                "--ghost-start-scale": `${coverClose?.ghostScale ?? 1}`,
+                "--cover-shrink-duration": `${coverClose?.duration ?? 6000}ms`,
+              }}
+            >
+              <span
+                className={`ghost-art mouth-opening${mouthCover ? " is-scanning" : ""}`}
+                style={{
+                  "--ghost-origin-x": `${mouthCover?.ghostOriginX ?? 50}%`,
+                  "--ghost-origin-y": `${mouthCover?.ghostOriginY ?? (286 / 512) * 100}%`,
+                  "--ghost-target-scale": `${mouthCover?.ghostScale ?? 1}`,
+                  "--ghost-start-scale": `${coverClose?.ghostScale ?? 1}`,
+                  "--cover-shrink-duration": `${coverClose?.duration ?? 6000}ms`,
+                }}
+                aria-hidden="true"
+              >
+                <span
+                  ref={ghostScalerRef}
+                  className={`ghost-scaler${mouthCover ? (coverClose ? " is-returning" : " is-swallowing") : ""}`}
+                >
+                  {ghostSvgMarkup ? (
+                    <span
+                      className="ghost-art-svg"
+                      dangerouslySetInnerHTML={{ __html: ghostSvgMarkup }}
+                    />
+                  ) : (
+                    <img src="/ghost.svg" alt="" />
+                  )}
+                </span>
+              </span>
+            </span>
             <span
               ref={coverCircleRef}
               className={`mouth-cover-circle${coverClose ? " is-shrinking" : ""}`}

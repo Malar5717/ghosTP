@@ -486,35 +486,52 @@ code {
   transition: scale 200ms ease, rotate 200ms ease;
 }
 
+.mouth-cover-ghost .ghost-art {
+  position: relative;
+  display: block;
+  width: 54px;
+  height: 54px;
+  object-fit: contain;
+  animation: ghost-float 2.4s ease-in-out infinite;
+}
+
 .summon-button .ghost-art svg,
 .summon-button .ghost-art-svg,
-.summon-button .ghost-art img {
+.summon-button .ghost-art img,
+.mouth-cover-ghost .ghost-art svg,
+.mouth-cover-ghost .ghost-art-svg,
+.mouth-cover-ghost .ghost-art img {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.summon-button .ghost-art img {
+.summon-button .ghost-art img,
+.mouth-cover-ghost .ghost-art img {
   object-fit: contain;
 }
 
-.summon-button .ghost-art.is-scanning {
+.summon-button .ghost-art.is-scanning,
+.mouth-cover-ghost .ghost-art.is-scanning {
   animation-play-state: paused;
   pointer-events: none;
 }
 
-.summon-button .ghost-scaler {
+.summon-button .ghost-scaler,
+.mouth-cover-ghost .ghost-scaler {
   display: block;
   width: 100%;
   height: 100%;
   transform-origin: var(--ghost-origin-x, 50%) var(--ghost-origin-y, 55.859375%);
 }
 
-.summon-button .ghost-scaler.is-swallowing {
+.summon-button .ghost-scaler.is-swallowing,
+.mouth-cover-ghost .ghost-scaler.is-swallowing {
   animation: ghost-swallow-expand 6000ms ease-in-out forwards;
 }
 
-.summon-button .ghost-scaler.is-returning {
+.summon-button .ghost-scaler.is-returning,
+.mouth-cover-ghost .ghost-scaler.is-returning {
   animation: ghost-swallow-shrink var(--cover-shrink-duration, 6000ms) ease-in-out forwards;
 }
 
@@ -523,6 +540,28 @@ code {
   inset: 0;
   z-index: 9999;
   overflow: hidden;
+  pointer-events: none;
+}
+
+.mouth-cover-ghost {
+  position: absolute;
+  left: var(--mouth-x);
+  top: var(--mouth-y);
+  width: 54px;
+  height: 54px;
+  margin-left: -27px;
+  margin-top: -27px;
+  z-index: 9998;
+  pointer-events: none;
+  transform-origin: var(--ghost-origin-x, 50%) var(--ghost-origin-y, 55.859375%);
+}
+
+.mouth-cover-ghost .ghost-art {
+  animation-play-state: paused;
+}
+
+.mouth-cover-ghost .ghost-art.is-scanning {
+  animation-play-state: paused;
   pointer-events: none;
 }
 
@@ -539,6 +578,7 @@ code {
   transform: scale(0);
   transform-origin: center;
   animation: mouth-cover-expand 6000ms ease-in-out forwards;
+  z-index: 9999;
 }
 
 .scan-loading-overlay {
