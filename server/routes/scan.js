@@ -8,14 +8,17 @@ const router = Router();
 router.post("/start", async (req, res) => {
     try {
         if (!req.session.user) return res.status(401).json({ error: "Not authenticated" });
-        const { age = "1m" } = req.body;
+        const { age = "1m", includeSpam = false, includeStarred = false } = req.body || {};
 
         const ageMap = { "1w": "7d", "1m": "30d", "3m": "90d" };
         const olderThan = ageMap[age] || "30d";
 
         const gmail = await getGmailClient(req.session.user.id);
 
-        const q = `(verification OR verify OR "verification code" OR OTP OR "one-time password" OR "one time password" OR "one-time code" OR "one time code" OR passcode OR "security code" OR "authentication code" OR "access code" OR "login code" OR "sign in code" OR "confirm your email" OR "confirm your account" OR 2fa) older_than:${olderThan} -in:trash -in:spam -is:starred`;
+        let q = `(verification OR verify OR "verification code" OR OTP OR "one-time password" OR "one time password" OR "one-time code" OR "one time code" OR passcode OR "security code" OR "authentication code" OR "access code" OR "login code" OR "sign in code" OR "confirm your email" OR "confirm your account" OR 2fa) older_than:${olderThan} -in:trash`;
+        if (!includeSpam) q += " -in:spam";
+        if (!includeStarred) q += " -is:starred";
+        if (includeSpam || includeStarred) q += " in:anywhere";
 
         const listRes = await gmail.users.messages.list({
             userId: "me",
@@ -59,6 +62,7 @@ router.post("/start", async (req, res) => {
                     // snippet,
                     isImportant: labelIds.includes("IMPORTANT"),
                     isStarred: labelIds.includes("STARRED"),
+                    isSpam: labelIds.includes("SPAM"),
                     ...classification,
                 });
             } catch (err) {
