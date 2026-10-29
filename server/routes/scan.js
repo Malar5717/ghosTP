@@ -15,7 +15,7 @@ router.post("/start", async (req, res) => {
 
         const gmail = await getGmailClient(req.session.user.id);
 
-        const q = `subject:(verification OR "verification code" OR OTP OR "one-time" OR "confirm your email" OR "confirm your account" OR "security code" OR "login code") older_than:${olderThan} -in:trash -in:spam -is:starred`;
+        const q = `(verification OR verify OR "verification code" OR OTP OR "one-time password" OR "one time password" OR "one-time code" OR "one time code" OR passcode OR "security code" OR "authentication code" OR "access code" OR "login code" OR "sign in code" OR "confirm your email" OR "confirm your account" OR 2fa) older_than:${olderThan} -in:trash -in:spam -is:starred`;
 
         const listRes = await gmail.users.messages.list({
             userId: "me",
