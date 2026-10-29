@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import ReactDOM from "react-dom/client";
 import "./styles.css";
 
-const API = "http://localhost:4000";
+const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
 const RISKY_SENDER = /(bank|gov|tax|irs|payment|paypal|stripe|visa|mastercard|invoice|billing)/i;
 
