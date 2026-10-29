@@ -33,11 +33,20 @@ router.post("/move", async (req, res) => {
             return res.status(400).json({ error: "Invalid message ID format" });
         }
 
-        // Only IDs that came from the current scan are eligible.
+        // Only IDs that came from the current scan or from user's activity are eligible.
         const scannedIds = new Set(getScan(req.sessionID).map((r) => r.id));
         const age = getScanAge(req.sessionID);
         const ageDays = AGE_DAYS[age];
         const cutoff = ageDays ? Date.now() - ageDays * 24 * 60 * 60 * 1000 : null;
+
+        // Also allow IDs from user's activity (for re-trash after restore)
+        const { activity } = await import("../db/schema.js");
+        const { eq, inArray } = await import("drizzle-orm");
+        const activityRows = await db
+            .select({ messageId: activity.messageId })
+            .from(activity)
+            .where(and(eq(activity.userId, req.session.user.id), inArray(activity.messageId, ids)));
+        const activityIds = new Set(activityRows.map((r) => r.messageId));
 
         const gmail = await getGmailClient(req.session.user.id);
 
@@ -46,7 +55,7 @@ router.post("/move", async (req, res) => {
         const display = new Map();
 
         for (const id of ids) {
-            if (!scannedIds.has(id)) {
+            if (!scannedIds.has(id) && !activityIds.has(id)) {
                 skipped.push({ id, reason: "Not part of the current scan" });
                 continue;
             }
@@ -90,6 +99,7 @@ router.post("/move", async (req, res) => {
 
         if (moved.length > 0) {
             try {
+                const now = new Date();
                 await db
                     .insert(activity)
                     .values(
@@ -99,18 +109,18 @@ router.post("/move", async (req, res) => {
                             subject: display.get(id)?.subject || null,
                             sender: display.get(id)?.from || null,
                             status: "trashed",
-                            movedAt: new Date(),
+                            movedAt: now,
                             restoredAt: null,
                         }))
                     )
                     .onConflictDoUpdate({
                         target: [activity.userId, activity.messageId],
                         set: {
-                            subject: sql`excluded.subject`,
-                            sender: sql`excluded.sender`,
-                            status: sql`'trashed'`,
-                            movedAt: sql`excluded.moved_at`,
-                            restoredAt: sql`null`,
+                            subject: sql`COALESCE(excluded.subject, ${activity.subject})`,
+                            sender: sql`COALESCE(excluded.sender, ${activity.sender})`,
+                            status: 'trashed',
+                            movedAt: now,
+                            restoredAt: null,
                         },
                     });
             } catch (e) {
@@ -152,18 +162,21 @@ router.post("/undo", async (req, res) => {
             return res.status(400).json({ error: "Invalid message ID format" });
         }
 
-        // Only restore what was actually trashed by this user.
+        // Restore what was actually trashed by this user (or moved to trash before)
         const knownRows = await db
             .select()
             .from(activity)
             .where(
                 and(
                     eq(activity.userId, req.session.user.id),
-                    eq(activity.status, "trashed"),
                     inArray(activity.messageId, ids)
                 )
             );
-        const known = new Set(knownRows.map((r) => r.messageId));
+        const known = new Set(
+            knownRows
+                .filter((r) => r.status === "trashed")
+                .map((r) => r.messageId)
+        );
         const restorable = ids.filter((id) => known.has(id));
         const skipped = ids
             .filter((id) => !known.has(id))

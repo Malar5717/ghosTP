@@ -1,62 +1,67 @@
 import { Router } from "express";
 import { google } from "googleapis";
 import { eq } from "drizzle-orm";
-import {
-  generateCodeVerifier,
-  generateCodeChallenge,
-  generateState,
-} from "../utils/pkce.js";
+import { randomBytes } from "crypto";
 import { db } from "../db/index.js";
 import { users, tokens, activity } from "../db/schema.js";
 import { encrypt, decrypt } from "../utils/crypto.js";
 
+function generateState() {
+  return randomBytes(32).toString("hex");
+}
+
 const router = Router();
 
+// permissions
 const SCOPES = [
-  "openid",
-  "https://www.googleapis.com/auth/userinfo.email",
-  "https://www.googleapis.com/auth/gmail.modify",
+  "openid", // OIDC authentication
+  "https://www.googleapis.com/auth/userinfo.email", // access to the user's email identity info
+  "https://www.googleapis.com/auth/gmail.modify", // allows Gmail operations
 ];
 
 // Fresh client per request: a module-level singleton would leak one user's
 // credentials into another user's request via setCredentials().
 function createOAuthClient() {
   return new google.auth.OAuth2(
-    process.env.GOOGLE_CLIENT_ID,
-    process.env.GOOGLE_CLIENT_SECRET,
-    process.env.GOOGLE_REDIRECT_URI
+    process.env.GOOGLE_CLIENT_ID, // identifies ghosTP
+    process.env.GOOGLE_CLIENT_SECRET, // authenticates ghosTP
+    process.env.GOOGLE_REDIRECT_URI // after authorization
   );
 }
 
-router.get("/google", (req, res) => {
-  const state = generateState();
-  const codeVerifier = generateCodeVerifier();
-  const codeChallenge = generateCodeChallenge(codeVerifier);
+router.get("/google", async (req, res) => {
+  try {
+    const state = generateState();
+    const oAuth2Client = createOAuthClient();
+    const { codeVerifier, codeChallenge } = await oAuth2Client.generateCodeVerifierAsync();
 
-  req.session.oauth = {
-    state,
-    codeVerifier,
-  };
+    // Save the temporary values in the session
+    req.session.oauth = {
+      state,
+      codeVerifier,
+    };
 
-  const params = new URLSearchParams({
-    client_id: process.env.GOOGLE_CLIENT_ID,
-    redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-    response_type: "code",
-    scope: SCOPES.join(" "),
-    access_type: "offline",
-    prompt: "consent",
-    state,
-    code_challenge: codeChallenge,
-    code_challenge_method: "S256",
-  });
+    const authUrl = oAuth2Client.generateAuthUrl({
+      access_type: "offline",
+      scope: SCOPES,
+      prompt: "consent",
+      state,
+      code_challenge: codeChallenge,
+      code_challenge_method: "S256",
+    });
 
-  req.session.save((err) => {
-    if (err) {
-      console.error("Failed to save session before OAuth redirect", err);
-      return res.status(500).send("Session error");
-    }
-    res.redirect(`https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
-  });
+    req.session.save((err) => {
+      if (err) {
+        console.error("Failed to save session before OAuth redirect", err);
+        return res.status(500).send("Session error");
+      }
+      // saves the session before redirecting
+      res.redirect(authUrl);
+    });
+  } catch (e) {
+    console.error("Failed to start OAuth flow", e);
+    res.status(500).send("OAuth failed");
+  }
 });
 
 router.get("/google/callback", async (req, res) => {
@@ -69,10 +74,12 @@ router.get("/google/callback", async (req, res) => {
     }
 
     const { codeVerifier } = req.session.oauth;
+    // the verifier is needed for this exchange, but it shouldn't remain in the session unnecessarily after use.
     delete req.session.oauth;
 
     const oAuth2Client = createOAuthClient();
 
+    // handles the token request
     // Exchange code for tokens
     const { tokens: googleTokens } = await oAuth2Client.getToken({
       code,
@@ -80,6 +87,7 @@ router.get("/google/callback", async (req, res) => {
       redirect_uri: process.env.GOOGLE_REDIRECT_URI,
     });
     oAuth2Client.setCredentials(googleTokens);
+    // the client object handle the full OAuth flow
 
     // Get user info
     const ticket = await oAuth2Client.verifyIdToken({
