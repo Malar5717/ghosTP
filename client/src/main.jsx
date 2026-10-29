@@ -37,6 +37,8 @@ function App() {
   const [error, setError] = useState("");
 
   const [age, setAge] = useState("1m");
+  const [includeSpam, setIncludeSpam] = useState(false);
+  const [includeStarred, setIncludeStarred] = useState(false);
   const [scanning, setScanning] = useState(false);
   const [ghostSvgMarkup, setGhostSvgMarkup] = useState("");
   const [mouthAnimation, setMouthAnimation] = useState(0);
@@ -336,7 +338,7 @@ function App() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ age }),
+        body: JSON.stringify({ age, includeSpam: !!includeSpam, includeStarred: !!includeStarred }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Scan failed. Try again.");
@@ -500,7 +502,16 @@ function App() {
               />
             </td>
             <td>{r.from}</td>
-            <td>{r.subject}</td>
+            <td>
+              <div>{r.subject}</div>
+              {(r.isSpam || r.isStarred) && (
+                <div style={{ fontSize: 12, color: "#666", marginTop: 2 }}>
+                  {r.isSpam ? "From Spam" : ""}
+                  {r.isSpam && r.isStarred ? " • " : ""}
+                  {r.isStarred ? "Starred" : ""}
+                </div>
+              )}
+            </td>
             <td>{renderDateTime(r.date)}</td>
             <td>{r.reason}</td>
           </tr>
@@ -548,6 +559,14 @@ function App() {
                 <option value="1m">1 month</option>
                 <option value="3m">3 months</option>
               </select>
+            </label>{" "}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+              <input type="checkbox" checked={includeSpam} onChange={(e) => setIncludeSpam(e.target.checked)} disabled={scanning} />
+              Include Spam
+            </label>{" "}
+            <label style={{ display: "inline-flex", alignItems: "center", gap: "6px" }}>
+              <input type="checkbox" checked={includeStarred} onChange={(e) => setIncludeStarred(e.target.checked)} disabled={scanning} />
+              Include Starred Emails
             </label>{" "}
             <div className="summon-control">
               <button
