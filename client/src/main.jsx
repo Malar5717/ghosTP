@@ -677,7 +677,7 @@ function App() {
                   <p style={{ fontSize: 13, color: "#555" }}>
                     Gmail marks these as important. Moving them needs extra confirmation.
                   </p>
-                  <p>
+                  <p className="protected-actions">
                     {selectedProtected.size} selected{" "}
                     <button className="button button-outline" onClick={toggleAllProtected}>Select all / none</button>{" "}
                     <button

@@ -1278,7 +1278,7 @@ body.results-dark {
 
 @media (max-width: 700px) {
   .app-shell {
-    padding: 0 20px 42px;
+    padding: 0 18px 32px;
   }
 
   .topbar {
@@ -1324,7 +1324,7 @@ body.results-dark {
   }
 
   .account-line {
-    margin-top: 24px !important;
+    margin-top: 0 !important;
   }
 
   .mobile-break {
@@ -1343,15 +1343,35 @@ body.results-dark {
   }
 
   .scan-controls {
-    justify-content: start;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+    justify-content: stretch;
+    gap: 10px;
   }
 
   .scan-controls label {
-    flex: 1;
+    min-width: 0;
+    width: 100%;
   }
 
   .scan-controls select {
     width: 100%;
+    min-width: 0;
+    padding-right: 24px;
+  }
+
+  .scan-controls > label[style] {
+    min-height: 42px;
+    justify-content: flex-start;
+    font: 11px/1.35 Arial, sans-serif;
+    letter-spacing: 0;
+  }
+
+  .summon-control {
+    grid-column: 1 / -1;
+    justify-self: center;
+    min-width: 150px;
   }
 
   .scan-button {
@@ -1377,6 +1397,21 @@ body.results-dark {
   .mail-table {
     display: block;
     overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    max-width: 100%;
+  }
+
+  .protected-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .protected-actions .button,
+  .protected-actions button {
+    flex: 1 1 auto;
+    min-width: 0;
   }
 
   .confirm-dialog {
@@ -1421,6 +1456,70 @@ body.results-dark {
   .activity-status {
     grid-column: 2;
     justify-self: start;
+  }
+}
+
+@media (max-width: 420px) {
+  .landing-content {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .landing-brand {
+    font-size: clamp(58px, 18vw, 76px);
+  }
+
+  .landing-tagline {
+    max-width: 290px;
+    font-size: 16px;
+  }
+
+  .landing-description {
+    max-width: 300px;
+    font-size: 12px;
+  }
+
+  .main-content {
+    padding-top: 14px;
+  }
+
+  .app-shell:not(.landing-shell) {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .scan-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .scan-controls > label,
+  .scan-controls > label[style],
+  .summon-control {
+    grid-column: 1;
+  }
+
+  .scan-controls > label[style] {
+    min-height: 30px;
+  }
+
+  .summon-control {
+    margin-top: 2px;
+  }
+
+  .confirm-dialog {
+    padding: 16px !important;
+  }
+
+  .activity-drawer {
+    padding: 14px !important;
+  }
+
+  .activity-counts div {
+    padding: 8px 6px;
+  }
+
+  .activity-counts span {
+    font-size: 8px;
   }
 }
 
