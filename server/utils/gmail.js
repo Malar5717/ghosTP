@@ -12,7 +12,9 @@ export async function getGmailClient(userId) {
         .limit(1);
 
     if (!tokenRow?.encryptedRefreshToken) {
-        throw new Error("No refresh token found for user");
+        const err = new Error("Gmail needs to be reconnected");
+        err.code = "GMAIL_RECONNECT_REQUIRED";
+        throw err;
     }
 
     const refreshToken = decrypt(tokenRow.encryptedRefreshToken);
@@ -25,17 +27,32 @@ export async function getGmailClient(userId) {
 
     auth.setCredentials({ refresh_token: refreshToken });
 
-    const { credentials } = await auth.refreshAccessToken();
-    const accessToken = credentials.access_token;
+    try {
+        const { credentials } = await auth.refreshAccessToken();
+        const accessToken = credentials.access_token;
 
-    auth.setCredentials({
-        access_token: accessToken,
-        refresh_token: refreshToken,
-    });
+        auth.setCredentials({
+            access_token: accessToken,
+            refresh_token: refreshToken,
+        });
 
-    if (!credentials.access_token) {
-        throw new Error("Google did not return an access token");
+        if (!credentials.access_token) {
+            const err = new Error("Google did not return an access token");
+            err.code = "GMAIL_RECONNECT_REQUIRED";
+            throw err;
+        }
+
+        return google.gmail({ version: "v1", auth });
+    } catch (e) {
+        const error = e.response?.data?.error || e.error || e.message;
+        if (error === "invalid_grant") {
+            try {
+                await db.delete(tokens).where(eq(tokens.userId, userId));
+            } catch {}
+            const err = new Error("Gmail needs to be reconnected");
+            err.code = "GMAIL_RECONNECT_REQUIRED";
+            throw err;
+        }
+        throw e;
     }
-
-    return google.gmail({ version: "v1", auth });
 }

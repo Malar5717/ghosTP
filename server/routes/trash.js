@@ -139,6 +139,9 @@ router.post("/move", async (req, res) => {
         });
     } catch (e) {
         console.error("TRASH MOVE ERROR:", e.response?.data || e);
+        if (e.code === "GMAIL_RECONNECT_REQUIRED") {
+            return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
+        }
         res.status(500).json({
             error: e.response?.data?.error?.message || e.message || "Move to Trash failed",
         });
@@ -211,6 +214,9 @@ router.post("/undo", async (req, res) => {
         });
     } catch (e) {
         console.error("TRASH UNDO ERROR:", e.response?.data || e);
+        if (e.code === "GMAIL_RECONNECT_REQUIRED") {
+            return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
+        }
         res.status(500).json({
             error: e.response?.data?.error?.message || e.message || "Restore failed",
         });

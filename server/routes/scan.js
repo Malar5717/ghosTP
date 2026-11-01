@@ -75,6 +75,9 @@ router.post("/start", async (req, res) => {
         res.json({ results, count: results.length });
     } catch (e) {
         console.error("FULL SCAN ERROR:", e.response?.data || e);
+        if (e.code === "GMAIL_RECONNECT_REQUIRED") {
+            return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
+        }
         res.status(500).json({ error: e.response?.data?.error?.message || e.message || "Scan failed" });
     }
 });

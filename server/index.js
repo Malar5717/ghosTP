@@ -97,6 +97,15 @@ app.use("/scan", scanRouter)
 app.use("/trash", doubleCsrfProtection, trashRouter)
 app.use("/activity", activityRouter)
 
+app.use((req, res, next) => {
+  res.status(404).json({ error: "Not found" })
+})
+
+app.use((err, req, res, next) => {
+  console.error(err)
+  res.status(err.status || 500).json({ error: err.message || "Server error" })
+})
+
 app.listen(port, () => {
   console.log(`Server running on port ${port}`)
 })
