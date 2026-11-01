@@ -47,6 +47,9 @@ function App() {
   const [coverClose, setCoverClose] = useState(null);
   const [scanOutcome, setScanOutcome] = useState(null);
   const [darkHome, setDarkHome] = useState(false);
+  const [permissionsOpen, setPermissionsOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const permissionsRef = useRef(null);
   const coverCircleRef = useRef(null);
   const ghostScalerRef = useRef(null);
   const [results, setResults] = useState([]);
@@ -101,6 +104,34 @@ function App() {
   useEffect(() => {
     checkAuth();
   }, []);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 700px)");
+    const updateViewport = () => setIsMobileViewport(media.matches);
+    updateViewport();
+    media.addEventListener?.("change", updateViewport);
+    return () => media.removeEventListener?.("change", updateViewport);
+  }, []);
+
+  useEffect(() => {
+    if (!permissionsOpen) return;
+    const onPointerDown = (event) => {
+      const target = event.target;
+      if (permissionsRef.current && permissionsRef.current.contains(target)) {
+        return;
+      }
+      setPermissionsOpen(false);
+    };
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") setPermissionsOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [permissionsOpen]);
 
   useEffect(() => {
     let active = true;
@@ -543,7 +574,62 @@ function App() {
             <p className="landing-instruction">Sign in to scan your Gmail.</p>
             <p className="landing-description"><strong>ghosTP can find emails and move selected ones to Trash. Nothing moves without your approval.</strong></p>
             {error && <p className="notice notice-error landing-error" role="alert">{error}</p>}
-          <button className="button button-primary landing-connect" onClick={connect}>Connect Gmail <span aria-hidden="true">↗</span></button></section>
+          <div
+            className={`permissions-wrap${permissionsOpen ? " is-open" : ""}`}
+            ref={permissionsRef}
+            onPointerEnter={(event) => {
+              if (event.pointerType !== "mouse") return;
+              if (window.matchMedia("(max-width: 700px)").matches) return;
+              setPermissionsOpen(true);
+            }}
+            onPointerLeave={(event) => {
+              if (event.pointerType !== "mouse") return;
+              if (window.matchMedia("(max-width: 700px)").matches) return;
+              setPermissionsOpen(false);
+            }}
+            onFocus={(event) => {
+              if (window.matchMedia("(max-width: 700px)").matches) return;
+              if (event.target instanceof HTMLElement && event.target !== event.currentTarget) return;
+              setPermissionsOpen(true);
+            }}
+          >
+            <button
+              className="button button-primary landing-connect"
+              aria-haspopup="dialog"
+              aria-expanded={permissionsOpen}
+              onClick={(event) => {
+                const isMobile = window.matchMedia("(max-width: 700px)").matches;
+                if (isMobile) {
+                  event.stopPropagation();
+                  if (permissionsOpen) return;
+                  setPermissionsOpen(true);
+                } else {
+                  connect();
+                }
+              }}
+              onPointerDown={(event) => {
+                const isMobile = window.matchMedia("(max-width: 700px)").matches;
+                if (isMobile && event.pointerType !== "mouse") {
+                  event.preventDefault();
+                }
+              }}
+            >Connect Gmail</button>
+            {permissionsOpen && (
+              <div className="permissions-popover" role="dialog" aria-label="Gmail permissions" onClick={(e) => e.stopPropagation()}>
+              <div className="permissions-content">
+                <p className="permissions-intro">Before we peek into your inbox, ghosTP needs your OK to:</p>
+                <ul className="permissions-list">
+                  <li><strong>Know who you are:</strong> your Gmail.</li>
+                  <li><strong>Find old OTPs:</strong> we read only the sender, subject, date and a short preview.</li>
+                  <li><strong>Move emails to Trash:</strong> only the ones you pick, and you can restore them.</li>
+                </ul>
+                <p className="permissions-note">We never store your emails or permanently delete anything.</p>
+                <p className="permissions-footnote">Google's permission covers broader Gmail access than what ghosTP actually uses. You can review exactly what Google allows on the next screen.<br />ghosTP only uses the 3 listed above</p>
+              </div>
+              {isMobileViewport && <button className="button button-primary permissions-connect" onClick={(e) => { e.stopPropagation(); connect(); }}>Connect Gmail</button>}
+              </div>
+            )}
+          </div></section>
         </main>
       ) : (
         <main className="main-content">

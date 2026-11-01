@@ -166,6 +166,124 @@ input:focus-visible {
   color: var(--ink);
 }
 
+.permissions-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: flex-start;
+}
+
+.permissions-popover {
+  position: absolute;
+  z-index: 5;
+  left: calc(100% - 30px);
+  top: calc(100% - 90px);
+  width: min(400px, calc(100vw - 32px));
+  padding: 16px 18px;
+  border: 1px solid var(--ink);
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  color: var(--ink);
+  text-align: left;
+  transform: none;
+  animation: permissions-rock 3.2s ease-in-out infinite;
+}
+
+@media (max-width: 700px) {
+  .permissions-wrap {
+    align-items: center;
+  }
+  .permissions-popover {
+    left: 50%;
+    top: 50%;
+    width: min(320px, calc(100vw - 24px));
+    height: auto;
+    transform: translate(-50%, -50%);
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+}
+
+.permissions-popover::before {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  z-index: -1;
+  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  clip-path: polygon(2% 4%, 25% 0, 48% 3%, 74% 0, 98% 5%, 100% 34%, 97% 56%, 100% 96%, 70% 100%, 43% 97%, 3% 100%, 0 70%, 3% 42%);
+}
+
+.permissions-content {
+  display: grid;
+  gap: 10px;
+}
+
+.permissions-intro {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.4;
+}
+
+.permissions-list {
+  margin: 0;
+  padding-left: 16px;
+  display: grid;
+  gap: 6px;
+}
+
+.permissions-list li {
+  font-size: 10px;
+  line-height: 1.4;
+}
+
+.permissions-list li strong {
+  font-weight: 700;
+}
+
+.permissions-note {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.permissions-footnote {
+  margin: 0;
+  font-size: 9.5px;
+  line-height: 1.45;
+  color: #4a4a42;
+}
+
+.permissions-connect {
+  min-height: 34px;
+  padding: 0 10px;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 10px;
+  align-self: flex-start;
+}
+
+@media (max-width: 700px) {
+  .permissions-connect {
+    align-self: center;
+  }
+}
+
+.permissions-connect {
+  min-height: 38px;
+  padding: 0 12px;
+  border-color: var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 11px;
+}
+
+@keyframes permissions-rock {
+  0%, 100% { rotate: -1deg; }
+  50% { rotate: 1deg; }
+}
+
 @media (max-height: 560px) {
   .landing-content { padding-top: 12px; padding-bottom: 12px; }
   .landing-brand { font-size: clamp(56px, 13vh, 96px); }
