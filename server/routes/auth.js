@@ -74,18 +74,32 @@ router.get("/google/callback", async (req, res) => {
     }
 
     const { codeVerifier } = req.session.oauth;
-    // the verifier is needed for this exchange, but it shouldn't remain in the session unnecessarily after use.
-    delete req.session.oauth;
+    if (!codeVerifier) {
+      return res.status(400).send("Missing PKCE verifier. Please try logging in again.");
+    }
 
     const oAuth2Client = createOAuthClient();
 
     // handles the token request
     // Exchange code for tokens
-    const { tokens: googleTokens } = await oAuth2Client.getToken({
-      code,
-      codeVerifier,
-      redirect_uri: process.env.GOOGLE_REDIRECT_URI,
-    });
+    let googleTokens;
+    try {
+      const tokenResponse = await oAuth2Client.getToken({
+        code,
+        codeVerifier,
+        redirect_uri: process.env.GOOGLE_REDIRECT_URI,
+      });
+      googleTokens = tokenResponse.tokens;
+    } catch (err) {
+      delete req.session.oauth;
+      const error = err.response?.data?.error || err.error || err.message;
+      if (error === "invalid_grant") {
+        return res.status(400).send("Login session expired or code already used. Please try again.");
+      }
+      throw err;
+    }
+    // the verifier is needed for this exchange, but it shouldn't remain in the session unnecessarily after use.
+    delete req.session.oauth;
     oAuth2Client.setCredentials(googleTokens);
     // the client object handle the full OAuth flow
 
