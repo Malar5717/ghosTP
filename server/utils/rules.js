@@ -50,19 +50,22 @@ const MARKETING_WORDS = [
 
 const normalize = (value) => String(value ?? "").toLowerCase();
 
-// Whole words only, so "otp" does not match "footprint".
-const includesAny = (text, phrases) =>
-    phrases.some((phrase) => {
-        const escaped = phrase.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
-        return new RegExp(`\\b${escaped}\\b`).test(text);
-    });
+const escapeRegExp = (phrase) => phrase.replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+
+// Build one whole-word alternation per list at module load. Building a new
+// RegExp for every phrase on every email was pure overhead.
+const phraseRegex = (phrases) =>
+    new RegExp(`\\b(?:${phrases.map(escapeRegExp).join("|")})\\b`);
+
+const VERIFICATION_REGEX = phraseRegex(VERIFICATION_PHRASES);
+const MARKETING_REGEX = phraseRegex(MARKETING_WORDS);
 
 export function classifyEmail({ subject, snippet } = {}) {
     const text = `${normalize(subject)} ${normalize(snippet)}`;
 
-    const hasPhrase = includesAny(text, VERIFICATION_PHRASES);
+    const hasPhrase = VERIFICATION_REGEX.test(text);
     const hasCode = CODE_REGEX.test(text);
-    const looksLikeMarketing = includesAny(text, MARKETING_WORDS);
+    const looksLikeMarketing = MARKETING_REGEX.test(text);
 
     if (hasPhrase && hasCode) {
         if (looksLikeMarketing) {

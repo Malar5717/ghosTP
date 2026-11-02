@@ -66,7 +66,6 @@ function App() {
   const [ghostSvgMarkup, setGhostSvgMarkup] = useState("");
   const [mouthAnimation, setMouthAnimation] = useState(0);
   const [mouthCover, setMouthCover] = useState(null);
-  const [coverFinished, setCoverFinished] = useState(false);
   const [coverClose, setCoverClose] = useState(null);
   const [scanOutcome, setScanOutcome] = useState(null);
   const [darkHome, setDarkHome] = useState(false);
@@ -219,11 +218,12 @@ function App() {
     if (!mouthCover || !scanOutcome) return;
 
     if (scanOutcome === "success") {
-      if (!coverFinished) return;
+      // Show the results as soon as the scan is ready instead of waiting for
+      // the cover animation to finish. The cover and the results screen are
+      // both black, so cutting the animation short does not flash.
       setDarkHome(true);
       setCoverClose(null);
       setMouthCover(null);
-      setCoverFinished(false);
       return;
     }
 
@@ -232,7 +232,6 @@ function App() {
     const scale = readCoverScale(coverCircleRef.current);
     if (scale <= 0.01) {
       setMouthCover(null);
-      setCoverFinished(false);
       setScanOutcome(null);
       setScanning(false);
       return;
@@ -243,7 +242,7 @@ function App() {
       ghostScale: readGhostScale(ghostScalerRef.current),
       duration: Math.max(200, Math.round(scale * 6000)),
     });
-  }, [mouthCover, coverFinished, scanOutcome, coverClose]);
+  }, [mouthCover, scanOutcome, coverClose]);
 
   const loadActivity = async () => {
     setActivityLoading(true);
@@ -334,7 +333,6 @@ function App() {
       setActivityOpen(false);
       setResult(null);
       setMouthCover(null);
-      setCoverFinished(false);
       setCoverClose(null);
       setScanOutcome(null);
       setDarkHome(false);
@@ -387,7 +385,6 @@ function App() {
       reachY > 0 ? (screenY / reachY) * 1.25 : 1
     );
 
-    setCoverFinished(false);
     setCoverClose(null);
     setMouthCover((prev) => ({
       x,
@@ -1088,12 +1085,8 @@ function App() {
               className={`mouth-cover-circle${coverClose ? " is-shrinking" : ""}`}
               aria-hidden="true"
               onAnimationEnd={(event) => {
-                if (event.animationName === "mouth-cover-expand" && !coverClose) {
-                  setCoverFinished(true);
-                }
                 if (event.animationName === "mouth-cover-shrink" && coverClose) {
                   setMouthCover(null);
-                  setCoverFinished(false);
                   setCoverClose(null);
                   setScanOutcome(null);
                   setScanning(false);
