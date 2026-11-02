@@ -5,6 +5,29 @@ import "./styles.css";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:4000";
 
+let csrfTokenCache = null;
+async function getCsrfToken() {
+  if (csrfTokenCache) return csrfTokenCache;
+  try {
+    const res = await fetch(`${API}/csrf-token`, { credentials: "include" });
+    const data = await safeJson(res);
+    if (data?.csrfToken) {
+      csrfTokenCache = data.csrfToken;
+      return csrfTokenCache;
+    }
+  } catch {}
+  return null;
+}
+
+async function safeJson(res) {
+  const contentType = res.headers.get("content-type") || "";
+  if (!contentType.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(text.slice(0, 200) || `Request failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
 const RISKY_SENDER = /(bank|gov|tax|irs|payment|paypal|stripe|visa|mastercard|invoice|billing)/i;
 
 function readCoverScale(element) {
@@ -49,6 +72,7 @@ function App() {
   const [darkHome, setDarkHome] = useState(false);
   const [permissionsOpen, setPermissionsOpen] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
+  const [gmailReconnectRequired, setGmailReconnectRequired] = useState(false);
   const permissionsRef = useRef(null);
   const coverCircleRef = useRef(null);
   const ghostScalerRef = useRef(null);
@@ -72,7 +96,7 @@ function App() {
     setError("");
     try {
       const res = await fetch(`${API}/auth/me`, { credentials: "include" });
-      const data = await res.json();
+      const data = await safeJson(res);
 
       if (!data.authenticated) {
         setUser(null);
@@ -86,7 +110,7 @@ function App() {
       try {
         const scanRes = await fetch(`${API}/scan/results`, { credentials: "include" });
         if (!scanRes.ok) throw new Error("Couldn't restore scan");
-        const scanData = await scanRes.json();
+        const scanData = await safeJson(scanRes);
         const restored = Array.isArray(scanData.results) ? scanData.results : [];
         setResults(restored);
         setDarkHome(restored.length > 0);
@@ -226,7 +250,7 @@ function App() {
     setActivityError("");
     try {
       const res = await fetch(`${API}/activity`, { credentials: "include" });
-      const data = await res.json();
+      const data = await safeJson(res);
       if (!res.ok) throw new Error(data.error || "Couldn't load activity.");
       setActivityItems(data.items || []);
       setActivityCounts(data.counts || { trashed: 0, restored: 0, deleted: 0 });
@@ -255,13 +279,29 @@ function App() {
     setBusy(true);
     setActivityError("");
     try {
-      const res = await fetch(`${API}/trash/undo`, {
+      let csrf = null;
+      try {
+        csrf = await getCsrfToken();
+      } catch {}
+      let res = await fetch(`${API}/trash/undo`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
         credentials: "include",
         body: JSON.stringify({ ids }),
       });
-      const data = await res.json();
+      if (res.status === 403) {
+        csrfTokenCache = null;
+        try {
+          csrf = await getCsrfToken();
+        } catch {}
+        res = await fetch(`${API}/trash/undo`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+          credentials: "include",
+          body: JSON.stringify({ ids }),
+        });
+      }
+      const data = await safeJson(res);
       if (!res.ok) throw new Error(data.error || "Couldn't restore emails.");
       setResult(data);
       await loadActivity();
@@ -292,6 +332,7 @@ function App() {
       setCoverClose(null);
       setScanOutcome(null);
       setDarkHome(false);
+      setGmailReconnectRequired(false);
     } catch {
       setError("Couldn't disconnect. Try again.");
     }
@@ -364,6 +405,7 @@ function App() {
     setResult(null);
     setSelected(new Set());
     setSelectedProtected(new Set());
+    setGmailReconnectRequired(false);
     try {
       const res = await fetch(`${API}/scan/start`, {
         method: "POST",
@@ -371,12 +413,22 @@ function App() {
         credentials: "include",
         body: JSON.stringify({ age, includeSpam: !!includeSpam, includeStarred: !!includeStarred }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Scan failed. Try again.");
+      const data = await safeJson(res);
+      if (!res.ok) {
+        if (data.code === "GMAIL_RECONNECT_REQUIRED") {
+          setGmailReconnectRequired(true);
+          setDarkHome(false);
+          setScanOutcome("error");
+          throw new Error("Gmail needs to be reconnected");
+        }
+        throw new Error(data.error || "Scan failed. Try again.");
+      }
       setResults(data.results || []);
       setScanOutcome("success");
     } catch (e) {
-      setError(e.message);
+      if (!gmailReconnectRequired) {
+        setError(e.message);
+      }
       setDarkHome(false);
       setScanOutcome("error");
     } finally {
@@ -413,15 +465,39 @@ function App() {
     const { ids, protected: isProtected } = confirming;
     setBusy(true);
     setError("");
+    setGmailReconnectRequired(false);
     try {
-      const res = await fetch(`${API}/trash/move`, {
+      let csrf = null;
+      try {
+        csrf = await getCsrfToken();
+      } catch {}
+      let res = await fetch(`${API}/trash/move`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
         credentials: "include",
         body: JSON.stringify({ ids, allowProtected: !!isProtected }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't move emails to Trash.");
+      if (res.status === 403) {
+        csrfTokenCache = null;
+        try {
+          csrf = await getCsrfToken();
+        } catch {}
+        res = await fetch(`${API}/trash/move`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+          credentials: "include",
+          body: JSON.stringify({ ids, allowProtected: !!isProtected }),
+        });
+      }
+      const data = await safeJson(res);
+      if (!res.ok) {
+        if (data.code === "GMAIL_RECONNECT_REQUIRED") {
+          setGmailReconnectRequired(true);
+          setConfirming(null);
+          throw new Error("Gmail needs to be reconnected");
+        }
+        throw new Error(data.error || "Couldn't move emails to Trash.");
+      }
 
       setResult(data);
       setConfirming(null);
@@ -429,7 +505,9 @@ function App() {
       setSelectedProtected(new Set());
       setResults((prev) => prev.filter((r) => !data.moved.includes(r.id)));
     } catch (e) {
-      setError(e.message);
+      if (!gmailReconnectRequired) {
+        setError(e.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -438,18 +516,43 @@ function App() {
   const undo = async (ids) => {
     setBusy(true);
     setError("");
+    setGmailReconnectRequired(false);
     try {
-      const res = await fetch(`${API}/trash/undo`, {
+      let csrf = null;
+      try {
+        csrf = await getCsrfToken();
+      } catch {}
+      let res = await fetch(`${API}/trash/undo`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
         credentials: "include",
         body: JSON.stringify({ ids }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Couldn't restore emails.");
+      if (res.status === 403) {
+        csrfTokenCache = null;
+        try {
+          csrf = await getCsrfToken();
+        } catch {}
+        res = await fetch(`${API}/trash/undo`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json", ...(csrf ? { "X-CSRF-Token": csrf } : {}) },
+          credentials: "include",
+          body: JSON.stringify({ ids }),
+        });
+      }
+      const data = await safeJson(res);
+      if (!res.ok) {
+        if (data.code === "GMAIL_RECONNECT_REQUIRED") {
+          setGmailReconnectRequired(true);
+          throw new Error("Gmail needs to be reconnected");
+        }
+        throw new Error(data.error || "Couldn't restore emails.");
+      }
       setResult(data);
     } catch (e) {
-      setError(e.message);
+      if (!gmailReconnectRequired) {
+        setError(e.message);
+      }
     } finally {
       setBusy(false);
     }
@@ -633,7 +736,16 @@ function App() {
         </main>
       ) : (
         <main className="main-content">
-          {error && <p className="notice notice-error" role="alert">{error}</p>}
+          {gmailReconnectRequired && (
+            <div className="notice notice-error" role="alert" style={{ display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
+              <div>
+                <strong>Oops! Gmail needs a little reconnect. 👻</strong><br />
+                Your Google connection has expired or been revoked. Your emails are safe, but we can't scan them until you reconnect.
+              </div>
+              <button className="button button-primary" onClick={connect}>Connect Gmail</button>
+            </div>
+          )}
+          {error && !gmailReconnectRequired && <p className="notice notice-error" role="alert">{error}</p>}
           <section className="workspace-heading account-heading"><p className="account-line"><span className="status-dot" />Signed in as <strong>{user.email}</strong>{" "}
             <button className="button button-quiet" onClick={disconnect} disabled={busy}>Disconnect</button></p></section>
 

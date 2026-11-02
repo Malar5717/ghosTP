@@ -94,7 +94,28 @@ app.get('/csrf-token', (req, res) => {
 
 app.use("/auth", authRouter)
 app.use("/scan", scanRouter)
-app.use("/trash", doubleCsrfProtection, trashRouter)
+app.use("/trash", (req, res, next) => {
+  const headerToken = req.headers['x-csrf-token']
+  const bodyToken = req.body?._csrf
+  const hasCsrfCookie = Boolean(req.cookies && (req.cookies['__Host-psifi.x-csrf-token'] || req.cookies['x-csrf-token']))
+  const hasSessionCookie = Boolean(req.cookies && req.cookies['connect.sid'])
+  doubleCsrfProtection(req, res, (err) => {
+    if (err) {
+      console.error('CSRF validation failed', {
+        method: req.method,
+        path: req.path,
+        origin: req.headers.origin,
+        hasSessionCookie,
+        hasCsrfCookie,
+        hasHeaderToken: Boolean(headerToken),
+        hasBodyToken: Boolean(bodyToken),
+        userAgent: req.headers['user-agent']?.slice(0, 50)
+      })
+      return res.status(403).json({ error: 'Invalid CSRF token' })
+    }
+    next()
+  })
+}, trashRouter)
 app.use("/activity", activityRouter)
 
 app.use((req, res, next) => {
