@@ -680,56 +680,36 @@ function App() {
           <div
             className={`permissions-wrap${permissionsOpen ? " is-open" : ""}`}
             ref={permissionsRef}
-            onPointerEnter={(event) => {
-              if (event.pointerType !== "mouse") return;
-              if (window.matchMedia("(max-width: 700px)").matches) return;
-              setPermissionsOpen(true);
-            }}
-            onPointerLeave={(event) => {
-              if (event.pointerType !== "mouse") return;
-              if (window.matchMedia("(max-width: 700px)").matches) return;
-              setPermissionsOpen(false);
-            }}
-            onFocus={(event) => {
-              if (window.matchMedia("(max-width: 700px)").matches) return;
-              if (event.target instanceof HTMLElement && event.target !== event.currentTarget) return;
-              setPermissionsOpen(true);
-            }}
           >
             <button
               className="button button-primary landing-connect"
               aria-haspopup="dialog"
               aria-expanded={permissionsOpen}
               onClick={(event) => {
-                const isMobile = window.matchMedia("(max-width: 700px)").matches;
-                if (isMobile) {
-                  event.stopPropagation();
-                  if (permissionsOpen) return;
-                  setPermissionsOpen(true);
-                } else {
-                  connect();
-                }
+                event.stopPropagation();
+                setPermissionsOpen((open) => !open);
               }}
-              onPointerDown={(event) => {
-                const isMobile = window.matchMedia("(max-width: 700px)").matches;
-                if (isMobile && event.pointerType !== "mouse") {
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
                   event.preventDefault();
+                  event.stopPropagation();
+                  setPermissionsOpen((open) => !open);
                 }
               }}
             >Connect Gmail</button>
             {permissionsOpen && (
               <div className="permissions-popover" role="dialog" aria-label="Gmail permissions" onClick={(e) => e.stopPropagation()}>
-              <div className="permissions-content">
-                <p className="permissions-intro">Before we peek into your inbox, ghosTP needs your OK to:</p>
-                <ul className="permissions-list">
-                  <li><strong>Know who you are:</strong> your Gmail.</li>
-                  <li><strong>Find old OTPs:</strong> we read only the sender, subject, date and a short preview.</li>
-                  <li><strong>Move emails to Trash:</strong> only the ones you pick, and you can restore them.</li>
-                </ul>
-                <p className="permissions-note">We never store your emails or permanently delete anything.</p>
-                <p className="permissions-footnote">Google's permission covers broader Gmail access than what ghosTP actually uses. You can review exactly what Google allows on the next screen.<br />ghosTP only uses the 3 listed above</p>
-              </div>
-              {isMobileViewport && <button className="button button-primary permissions-connect" onClick={(e) => { e.stopPropagation(); connect(); }}>Connect Gmail</button>}
+                <div className="permissions-content">
+                  <p className="permissions-intro">Before we peek into your inbox, ghosTP needs your OK to:</p>
+                  <ul className="permissions-list">
+                    <li><strong>Know who you are:</strong> your Gmail.</li>
+                    <li><strong>Find old OTPs:</strong> we read only the sender, subject, date and a short preview.</li>
+                    <li><strong>Move emails to Trash:</strong> only the ones you pick, and you can restore them.</li>
+                  </ul>
+                  <p className="permissions-note">We never store your emails or permanently delete anything.</p>
+                  <p className="permissions-footnote">Google's permission covers broader Gmail access than ghosTP actually uses. You can review exactly what Google allows on the next screen.<br />ghosTP only uses the 3 listed above</p>
+                </div>
+                <button className="button button-primary permissions-connect" onClick={(e) => { e.stopPropagation(); connect(); }}><strong><u>Continue</u></strong></button>
               </div>
             )}
           </div></section>

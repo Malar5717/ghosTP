@@ -172,19 +172,31 @@ input:focus-visible {
   align-items: flex-start;
 }
 
+.permissions-wrap.is-open {
+  min-width: 0;
+}
+
 .permissions-popover {
   position: absolute;
   z-index: 5;
-  left: calc(100% - 30px);
-  top: calc(100% - 90px);
-  width: min(400px, calc(100vw - 32px));
+  left: 50%;
+  top: auto;
+  right: auto;
+  bottom: calc(100% - 84px);
+  width: min(380px, calc(100vw - 32px));
+  height: auto;
   padding: 16px 18px;
   border: 1px solid var(--ink);
-  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: var(--accent) !important;
+  opacity: 1;
   color: var(--ink);
   text-align: left;
-  transform: none;
+  transform: translateX(-50%);
   animation: permissions-rock 3.2s ease-in-out infinite;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  justify-content: center;
 }
 
 @media (max-width: 700px) {
@@ -192,15 +204,14 @@ input:focus-visible {
     align-items: center;
   }
   .permissions-popover {
+    position: fixed;
     left: 50%;
     top: 50%;
-    width: min(320px, calc(100vw - 24px));
-    height: auto;
-    transform: translate(-50%, -50%);
+    right: auto;
+    bottom: auto;
+    width: min(360px, calc(100vw - 32px));
+    transform: translate(-50%, calc(-50% + 96px));
     padding: 14px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
   }
 }
 
@@ -209,13 +220,13 @@ input:focus-visible {
   position: absolute;
   inset: -4px;
   z-index: -1;
-  background: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: var(--accent) !important;
   clip-path: polygon(2% 4%, 25% 0, 48% 3%, 74% 0, 98% 5%, 100% 34%, 97% 56%, 100% 96%, 70% 100%, 43% 97%, 3% 100%, 0 70%, 3% 42%);
 }
 
 .permissions-content {
   display: grid;
-  gap: 10px;
+  gap: 7px;
 }
 
 .permissions-intro {
@@ -229,7 +240,7 @@ input:focus-visible {
   margin: 0;
   padding-left: 16px;
   display: grid;
-  gap: 6px;
+  gap: 4px;
 }
 
 .permissions-list li {
@@ -255,28 +266,23 @@ input:focus-visible {
 }
 
 .permissions-connect {
-  min-height: 34px;
-  padding: 0 10px;
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 10px;
-  align-self: flex-start;
+  min-height: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent !important;
+  color: var(--ink) !important;
+  font-size: 12px;
+  align-self: center;
+  text-decoration: underline;
+  box-shadow: none;
 }
 
-@media (max-width: 700px) {
-  .permissions-connect {
-    align-self: center;
-  }
-}
-
-.permissions-connect {
-  min-height: 38px;
-  padding: 0 12px;
-  border-color: var(--ink);
-  background: var(--ink);
-  color: var(--paper);
-  font-size: 11px;
+.button-primary.permissions-connect:hover:not(:disabled),
+.button-primary.permissions-connect:focus-visible {
+  border: none;
+  background: transparent !important;
+  color: var(--ink) !important;
+  box-shadow: none;
 }
 
 @keyframes permissions-rock {
