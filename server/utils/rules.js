@@ -27,11 +27,12 @@ const VERIFICATION_PHRASES = [
 ];
 
 // Words that usually sit next to a real one-time code.
-const CODE_WORDS = "code|otp|pin|passcode|verification|verify|confirm|confirmation|authenticate|authentication|auth|login|sign[- ]?in|2fa|two[- ]?factor";
+const CODE_WORDS = "code|otp|pin|passcode";
 
-// A code-shaped string: numeric (3-8 digits, possibly split) or alphanumeric (4-8 chars).
+// A code-shaped string: numeric (3-8 digits, possibly split) or alphanumeric (4-8 chars
+// that must contain at least one digit, so ordinary words like "email" do not count).
 const NUMERIC_CODE = "(?:\\d{3}[- ]?\\d{3}|\\d{3,8})";
-const ALPHANUM_CODE = "(?:[A-Za-z0-9]{4,8})";
+const ALPHANUM_CODE = "(?:(?=[A-Za-z]*\\d)[A-Za-z0-9]{4,8})";
 const CODE_TOKEN = `(?:${NUMERIC_CODE}|${ALPHANUM_CODE})`;
 
 // The number must be close to a code word, in either order.
@@ -70,11 +71,9 @@ export function classifyEmail({ subject, snippet } = {}) {
         return { label: "Match", reason: "Verification phrase and code found" };
     }
 
-    if (hasCode && (includesAny(text, ["code", "otp", "pin", "passcode", "verification", "verify", "confirm", "confirmation", "auth", "2fa"]) || hasPhrase)) {
-        if (looksLikeMarketing) {
-            return { label: "Unclear", reason: "Looks like a code, but also like marketing or a receipt" };
-        }
-        return { label: "Unclear", reason: "Code found near verification context" };
+    // A code next to a code word, but no verification phrase: let the user decide.
+    if (hasCode) {
+        return { label: "Unclear", reason: "Code found next to a code word" };
     }
 
     if (hasPhrase) {
