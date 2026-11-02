@@ -4,6 +4,13 @@ import { tokens } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { decrypt } from "./crypto.js";
 
+// The route checks for this code and shows "Reconnect Gmail".
+function reconnectError(message = "Gmail needs to be reconnected") {
+    const err = new Error(message);
+    err.code = "GMAIL_RECONNECT_REQUIRED";
+    return err;
+}
+
 export async function getGmailClient(userId) {
     const [tokenRow] = await db
         .select()
@@ -12,12 +19,18 @@ export async function getGmailClient(userId) {
         .limit(1);
 
     if (!tokenRow?.encryptedRefreshToken) {
-        const err = new Error("Gmail needs to be reconnected");
-        err.code = "GMAIL_RECONNECT_REQUIRED";
-        throw err;
+        throw reconnectError();
     }
 
-    const refreshToken = decrypt(tokenRow.encryptedRefreshToken);
+    let refreshToken;
+    try {
+        refreshToken = decrypt(tokenRow.encryptedRefreshToken);
+    } catch (e) {
+        // The saved token cannot be read (for example TOKEN_ENC_KEY changed).
+        // Log the reason (never the token), and ask the user to reconnect.
+        console.error("Could not decrypt the saved Gmail token:", e.message);
+        throw reconnectError();
+    }
 
     const auth = new google.auth.OAuth2(
         process.env.GOOGLE_CLIENT_ID,
@@ -29,18 +42,15 @@ export async function getGmailClient(userId) {
 
     try {
         const { credentials } = await auth.refreshAccessToken();
-        const accessToken = credentials.access_token;
-
-        auth.setCredentials({
-            access_token: accessToken,
-            refresh_token: refreshToken,
-        });
 
         if (!credentials.access_token) {
-            const err = new Error("Google did not return an access token");
-            err.code = "GMAIL_RECONNECT_REQUIRED";
-            throw err;
+            throw reconnectError("Google did not return an access token");
         }
+
+        auth.setCredentials({
+            access_token: credentials.access_token,
+            refresh_token: refreshToken,
+        });
 
         return google.gmail({ version: "v1", auth });
     } catch (e) {
@@ -49,9 +59,7 @@ export async function getGmailClient(userId) {
             try {
                 await db.delete(tokens).where(eq(tokens.userId, userId));
             } catch {}
-            const err = new Error("Gmail needs to be reconnected");
-            err.code = "GMAIL_RECONNECT_REQUIRED";
-            throw err;
+            throw reconnectError();
         }
         throw e;
     }
