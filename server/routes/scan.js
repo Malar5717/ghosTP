@@ -2,20 +2,43 @@ import { Router } from "express";
 import { getGmailClient } from "../utils/gmail.js";
 import { classifyEmail } from "../utils/rules.js";
 import { setScan, getScan } from "../utils/scanStore.js";
+import { clearCachedAccessToken } from "../utils/accessTokenCache.js";
 
 const router = Router();
+
+// Fetch message metadata a few at a time. The calls are read-only and
+// idempotent, so running them concurrently only cuts wall-clock time.
+const FETCH_CONCURRENCY = 8;
+
+async function mapWithConcurrency(items, limit, worker) {
+    const results = [];
+    let index = 0;
+    const runners = Array.from(
+        { length: Math.min(limit, items.length) },
+        async () => {
+            while (index < items.length) {
+                const current = index++;
+                const value = await worker(items[current]);
+                if (value !== undefined) results.push(value);
+            }
+        }
+    );
+    await Promise.all(runners);
+    return results;
+}
 
 router.post("/start", async (req, res) => {
     try {
         if (!req.session.user) return res.status(401).json({ error: "Not authenticated" });
         const { age = "1m", includeSpam = false, includeStarred = false } = req.body || {};
 
-        const ageMap = { "1w": "7d", "1m": "30d", "3m": "90d" };
+        const ageMap = { "1w": "7d", "1m": "30d", "3m": "90d", "1h": "1d" };
         const olderThan = ageMap[age] || "30d";
 
         const gmail = await getGmailClient(req.session.user.id);
 
-        let q = `(verification OR verify OR "verification code" OR OTP OR "one-time password" OR "one time password" OR "one-time code" OR "one time code" OR passcode OR "security code" OR "authentication code" OR "access code" OR "login code" OR "sign in code" OR "confirm your email" OR "confirm your account" OR 2fa) older_than:${olderThan} -in:trash`;
+        let timeQuery = age === "1h" ? `newer_than:${ageMap[age]}` : `older_than:${olderThan}`;
+        let q = `(verification OR verify OR "verification code" OR OTP OR "one-time password" OR "one time password" OR "one-time code" OR "one time code" OR passcode OR "security code" OR "authentication code" OR "access code" OR "login code" OR "sign in code" OR "confirm your email" OR "confirm your account" OR 2fa) ${timeQuery} -in:trash`;
         if (!includeSpam) q += " -in:spam";
         if (!includeStarred) q += " -is:starred";
         if (includeSpam || includeStarred) q += " in:anywhere";
@@ -32,8 +55,7 @@ router.post("/start", async (req, res) => {
             return res.json({ results: [], count: 0 });
         }
 
-        const results = [];
-        for (const m of messages) {
+        const results = await mapWithConcurrency(messages, FETCH_CONCURRENCY, async (m) => {
             try {
                 const msg = await gmail.users.messages.get({
                     userId: "me",
@@ -52,9 +74,9 @@ router.post("/start", async (req, res) => {
                 const classification = classifyEmail({ subject, snippet });
 
                 // Don't store or return emails we know aren't verification/OTP related
-                if (classification.label === "Not a match") continue;
+                if (classification.label === "Not a match") return undefined;
 
-                results.push({
+                return {
                     id: m.id,
                     from,
                     subject,
@@ -64,18 +86,21 @@ router.post("/start", async (req, res) => {
                     isStarred: labelIds.includes("STARRED"),
                     isSpam: labelIds.includes("SPAM"),
                     ...classification,
-                });
+                };
             } catch (err) {
                 console.error("Failed to fetch message", m.id, err.message);
+                return undefined;
             }
-        }
+        });
 
         results.sort((a, b) => new Date(b.date) - new Date(a.date));
         setScan(req.sessionID, results, age);
         res.json({ results, count: results.length });
     } catch (e) {
         console.error("FULL SCAN ERROR:", e.response?.data || e);
-        if (e.code === "GMAIL_RECONNECT_REQUIRED") {
+        const status = e.response?.status || Number(e.code);
+        if (e.code === "GMAIL_RECONNECT_REQUIRED" || status === 401) {
+            if (status === 401) clearCachedAccessToken(req.session.user.id);
             return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
         }
         res.status(500).json({ error: e.response?.data?.error?.message || e.message || "Scan failed" });

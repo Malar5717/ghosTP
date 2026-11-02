@@ -251,7 +251,13 @@ function App() {
     try {
       const res = await fetch(`${API}/activity`, { credentials: "include" });
       const data = await safeJson(res);
-      if (!res.ok) throw new Error(data.error || "Couldn't load activity.");
+      if (!res.ok) {
+        if (data.code === "GMAIL_RECONNECT_REQUIRED") {
+          setGmailReconnectRequired(true);
+          throw new Error("Gmail needs to be reconnected");
+        }
+        throw new Error(data.error || "Couldn't load activity.");
+      }
       setActivityItems(data.items || []);
       setActivityCounts(data.counts || { trashed: 0, restored: 0, deleted: 0 });
       setActivitySelected(new Set());
@@ -731,8 +737,9 @@ function App() {
 
           <section className="scan-panel"><div><h3>Scan older emails</h3><p className="muted">Find old verification codes.</p></div><div className="scan-controls">
             <label>
-              Older than:{" "}
+              Time range:{" "}
               <select value={age} onChange={(e) => setAge(e.target.value)} disabled={scanning}>
+                <option value="1h">Last hour</option>
                 <option value="1w">1 week</option>
                 <option value="1m">1 month</option>
                 <option value="3m">3 months</option>
@@ -811,6 +818,10 @@ function App() {
                 </ul>
               )}
             </div>
+          )}
+
+          {results.length === 0 && user && !scanning && !mouthCover && (
+            <p style={{ fontSize: 13, color: "#555", marginTop: 16 }}>Didn't work? Try again</p>
           )}
 
           {results.length > 0 && (

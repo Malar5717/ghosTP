@@ -768,7 +768,7 @@ code {
 select {
   min-height: 42px;
   min-width: 150px;
-  padding: 0 34px 0 12px;
+  padding: 0 44px 0 12px;
   border: 1px solid var(--ink);
   border-radius: 0;
   background: transparent;

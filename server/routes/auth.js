@@ -5,6 +5,7 @@ import { randomBytes } from "crypto";
 import { db } from "../db/index.js";
 import { users, tokens, activity } from "../db/schema.js";
 import { encrypt, decrypt } from "../utils/crypto.js";
+import { clearCachedAccessToken } from "../utils/accessTokenCache.js";
 
 function generateState() {
   return randomBytes(32).toString("hex");
@@ -139,6 +140,9 @@ router.get("/google/callback", async (req, res) => {
           target: tokens.userId,
           set: { encryptedRefreshToken: encrypted, updatedAt: new Date() },
         });
+      // A new refresh token may belong to a different account, so never
+      // reuse the access token that was cached for the previous one.
+      clearCachedAccessToken(user.id);
     }
 
     // Put minimal user in session
@@ -191,6 +195,10 @@ router.get("/disconnect", async (req, res) => {
 
       await db.delete(tokens).where(eq(tokens.userId, userId));
     }
+
+    // Drop any cached access token so a later reconnect cannot reuse the
+    // credentials of the account that was just disconnected.
+    clearCachedAccessToken(userId);
 
     // Disconnect deletes stored data. Activity rows are kept so the log
     // survives a reconnect, but the email content (subject/sender) is scrubbed.

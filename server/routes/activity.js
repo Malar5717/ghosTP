@@ -4,6 +4,7 @@ import { db } from "../db/index.js";
 import { activity } from "../db/schema.js";
 import { getGmailClient } from "../utils/gmail.js";
 import { getMessageState } from "../utils/gmailActions.js";
+import { clearCachedAccessToken } from "../utils/accessTokenCache.js";
 
 const router = Router();
 const MAX_ROWS = 100;
@@ -129,6 +130,11 @@ router.get("/", async (req, res) => {
         });
     } catch (e) {
         console.error("Activity load error", e);
+        const status = e.response?.status || Number(e.code);
+        if (e.code === "GMAIL_RECONNECT_REQUIRED" || status === 401) {
+            if (status === 401) clearCachedAccessToken(req.session.user.id);
+            return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
+        }
         res.status(500).json({ error: "Failed to load activity" });
     }
 });

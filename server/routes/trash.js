@@ -5,6 +5,7 @@ import { activity } from "../db/schema.js";
 import { getGmailClient } from "../utils/gmail.js";
 import { getMessageState, trashMessages, untrashMessages } from "../utils/gmailActions.js";
 import { getScan, getScanAge } from "../utils/scanStore.js";
+import { clearCachedAccessToken } from "../utils/accessTokenCache.js";
 
 const router = Router();
 
@@ -28,6 +29,7 @@ function needsReconnect(e) {
     }
     return (
         e?.code === "GMAIL_RECONNECT_REQUIRED" ||
+        gmailStatus(e) === 401 ||
         isInsufficient
     );
 }
@@ -161,6 +163,7 @@ router.post("/move", async (req, res) => {
     } catch (e) {
         console.error("TRASH MOVE ERROR:", e.response?.data || e);
         if (needsReconnect(e)) {
+            if (gmailStatus(e) === 401) clearCachedAccessToken(req.session.user.id);
             return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
         }
         res.status(500).json({
@@ -238,6 +241,7 @@ router.post("/undo", async (req, res) => {
     } catch (e) {
         console.error("TRASH UNDO ERROR:", e.response?.data || e);
         if (needsReconnect(e)) {
+            if (gmailStatus(e) === 401) clearCachedAccessToken(req.session.user.id);
             return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
         }
         res.status(500).json({

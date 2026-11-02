@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, vi } from "vitest";
 import { getGmailClient } from "../utils/gmail.js";
+import { clearCachedAccessToken } from "../utils/accessTokenCache.js";
 
 // ---- Mocks: no real Google, database or encryption ----
 const m = vi.hoisted(() => {
@@ -45,6 +46,7 @@ beforeEach(() => {
     m.dbDelete.mockReset().mockResolvedValue(undefined);
     m.decrypt.mockReset().mockReturnValue("refresh-1");
     m.rows = [{ encryptedRefreshToken: "encrypted-blob" }];
+    clearCachedAccessToken(1);
 });
 
 describe("getGmailClient: when the user must reconnect", () => {
@@ -99,6 +101,20 @@ describe("getGmailClient: normal use", () => {
         expect(m.auth.setCredentials).toHaveBeenLastCalledWith({ access_token: "access-1", refresh_token: "refresh-1" });
         expect(m.gmailFactory).toHaveBeenCalledWith({ version: "v1", auth: m.auth });
         expect(m.dbDelete).not.toHaveBeenCalled();
+    });
+
+    test("reuses the cached access token instead of refreshing again", async () => {
+        await getGmailClient(1);
+        m.auth.refreshAccessToken.mockClear();
+
+        const client = await getGmailClient(1);
+
+        expect(client).toBe(fakeGmail);
+        expect(m.auth.refreshAccessToken).not.toHaveBeenCalled();
+        expect(m.auth.setCredentials).toHaveBeenLastCalledWith({
+            access_token: "access-1",
+            refresh_token: "refresh-1",
+        });
     });
 
     test.each([
