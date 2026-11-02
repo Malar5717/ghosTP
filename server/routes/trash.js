@@ -15,6 +15,23 @@ function isValidId(id) {
     return typeof id === "string" && /^[A-Za-z0-9_-]{1,128}$/.test(id);
 }
 
+// Status code of a Google API error, if it has one.
+function gmailStatus(e) {
+    return e?.response?.status || Number(e?.code) || null;
+}
+
+// Errors that only a reconnect can fix: expired token, or a missing permission.
+function needsReconnect(e) {
+    const isInsufficient = gmailStatus(e) === 403 && /insufficient/i.test(e?.message || "");
+    if (isInsufficient && e?.message && !/Did you check the permission checkbox on the consent screen/i.test(e.message)) {
+        e.message = `${e.message} Did you check the permission checkbox on the consent screen?`;
+    }
+    return (
+        e?.code === "GMAIL_RECONNECT_REQUIRED" ||
+        isInsufficient
+    );
+}
+
 router.post("/move", async (req, res) => {
     try {
         if (!req.session.user) {
@@ -33,6 +50,9 @@ router.post("/move", async (req, res) => {
             return res.status(400).json({ error: "Invalid message ID format" });
         }
 
+        // Remove duplicates, so the same message is never handled twice.
+        const uniqueIds = [...new Set(ids)];
+
         // Only IDs that came from the current scan or from user's activity are eligible.
         const scannedIds = new Set(getScan(req.sessionID).map((r) => r.id));
         const age = getScanAge(req.sessionID);
@@ -40,12 +60,10 @@ router.post("/move", async (req, res) => {
         const cutoff = ageDays ? Date.now() - ageDays * 24 * 60 * 60 * 1000 : null;
 
         // Also allow IDs from user's activity (for re-trash after restore)
-        const { activity } = await import("../db/schema.js");
-        const { eq, inArray } = await import("drizzle-orm");
         const activityRows = await db
             .select({ messageId: activity.messageId })
             .from(activity)
-            .where(and(eq(activity.userId, req.session.user.id), inArray(activity.messageId, ids)));
+            .where(and(eq(activity.userId, req.session.user.id), inArray(activity.messageId, uniqueIds)));
         const activityIds = new Set(activityRows.map((r) => r.messageId));
 
         const gmail = await getGmailClient(req.session.user.id);
@@ -54,7 +72,7 @@ router.post("/move", async (req, res) => {
         const skipped = [];
         const display = new Map();
 
-        for (const id of ids) {
+        for (const id of uniqueIds) {
             if (!scannedIds.has(id) && !activityIds.has(id)) {
                 skipped.push({ id, reason: "Not part of the current scan" });
                 continue;
@@ -64,8 +82,11 @@ router.post("/move", async (req, res) => {
             try {
                 state = await getMessageState(gmail, id);
             } catch (e) {
-                skipped.push({ id, reason: "Message not found or inaccessible" });
-                continue;
+                if (gmailStatus(e) === 404) {
+                    skipped.push({ id, reason: "Message not found or inaccessible" });
+                    continue;
+                }
+                throw e;
             }
 
             if (state.isTrash) {
@@ -139,7 +160,7 @@ router.post("/move", async (req, res) => {
         });
     } catch (e) {
         console.error("TRASH MOVE ERROR:", e.response?.data || e);
-        if (e.code === "GMAIL_RECONNECT_REQUIRED") {
+        if (needsReconnect(e)) {
             return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
         }
         res.status(500).json({
@@ -165,6 +186,8 @@ router.post("/undo", async (req, res) => {
             return res.status(400).json({ error: "Invalid message ID format" });
         }
 
+        const uniqueIds = [...new Set(ids)];
+
         // Restore what was actually trashed by this user (or moved to trash before)
         const knownRows = await db
             .select()
@@ -172,7 +195,7 @@ router.post("/undo", async (req, res) => {
             .where(
                 and(
                     eq(activity.userId, req.session.user.id),
-                    inArray(activity.messageId, ids)
+                    inArray(activity.messageId, uniqueIds)
                 )
             );
         const known = new Set(
@@ -180,8 +203,8 @@ router.post("/undo", async (req, res) => {
                 .filter((r) => r.status === "trashed")
                 .map((r) => r.messageId)
         );
-        const restorable = ids.filter((id) => known.has(id));
-        const skipped = ids
+        const restorable = uniqueIds.filter((id) => known.has(id));
+        const skipped = uniqueIds
             .filter((id) => !known.has(id))
             .map((id) => ({ id, reason: "Not in your Trash activity" }));
 
@@ -214,7 +237,7 @@ router.post("/undo", async (req, res) => {
         });
     } catch (e) {
         console.error("TRASH UNDO ERROR:", e.response?.data || e);
-        if (e.code === "GMAIL_RECONNECT_REQUIRED") {
+        if (needsReconnect(e)) {
             return res.status(401).json({ code: "GMAIL_RECONNECT_REQUIRED", error: "Gmail needs to be reconnected" });
         }
         res.status(500).json({
