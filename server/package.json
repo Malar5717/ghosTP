@@ -28,6 +28,7 @@
     "nodemailer": "^10.3.1",
     "pg": "^8.23.1",
     "supertest": "^7.3.1",
+    "vitest": "^4.1.12",
     "zod": "^3.23.8"
   },
   "devDependencies": {
