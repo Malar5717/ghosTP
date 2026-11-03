@@ -734,7 +734,7 @@ function App() {
 
           <section className="scan-panel"><div><h3>Scan older emails</h3><p className="muted">Find old verification codes.</p></div><div className="scan-controls">
             <label>
-              Time range:{" "}
+              Older than:{" "}
               <select value={age} onChange={(e) => setAge(e.target.value)} disabled={scanning}>
                 <option value="1h">Last hour</option>
                 <option value="1w">1 week</option>
